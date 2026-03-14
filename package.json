@@ -1,0 +1,33 @@
+{
+  "name": "binaclaw",
+  "version": "0.1.0",
+  "description": "A Binance-focused CLI AI agent inspired by Dexter and Binance Skills.",
+  "type": "module",
+  "bin": {
+    "binaclaw": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "skills",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=25.0.0"
+  },
+  "scripts": {
+    "chat": "node src/index.ts chat",
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "node --test tests/*.test.ts && node src/index.ts doctor"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "grammy": "^1.41.1",
+    "openai": "^6.29.0",
+    "ws": "^8.19.0"
+  }
+}

@@ -28,6 +28,7 @@ export function formatConfigSummary(config: AppConfig): string {
     `BRAVE_SEARCH_API_KEY: ${config.brave.apiKey ? "present" : "missing"}`,
     `BINANCE_API_KEY: ${config.binance.apiKey ? "present (shell/local env)" : "missing"}`,
     `BINANCE_API_SECRET: ${config.binance.apiSecret ? "present (shell/local env)" : "missing"}`,
+    `BINANCE_SQUARE_OPENAPI_KEY: ${config.binance.squareOpenApiKey ? "present (shell/local env)" : "missing"}`,
     `BINANCE_USE_TESTNET: ${config.binance.useTestnet ? "true" : "false"}`,
   ].join("\n");
 }
@@ -171,12 +172,18 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
       5,
       5,
       "Binance Local Secrets",
-      "Binance 金融密钥只会写入本机 env.local，不会进入 config.json。",
-      ["BINANCE_API_KEY", "BINANCE_API_SECRET"],
+      "Binance 交易密钥和 Square 发帖密钥只会写入本机 env.local，不会进入 config.json。Square 发帖能力需要 BINANCE_SQUARE_OPENAPI_KEY。",
+      ["BINANCE_API_KEY", "BINANCE_API_SECRET", "BINANCE_SQUARE_OPENAPI_KEY"],
     ),
   );
   const binanceApiKey = await promptText(rl, "BINANCE_API_KEY", config.binance.apiKey, { sensitive: true });
   const binanceApiSecret = await promptText(rl, "BINANCE_API_SECRET", config.binance.apiSecret, { sensitive: true });
+  const binanceSquareOpenApiKey = await promptText(
+    rl,
+    "BINANCE_SQUARE_OPENAPI_KEY",
+    config.binance.squareOpenApiKey,
+    { sensitive: true, required: true },
+  );
 
   const nextConfig: StoredAppConfig = {
     provider: {
@@ -217,6 +224,7 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
   await saveLocalEnvFile(config.localEnvFile, {
     BINANCE_API_KEY: binanceApiKey,
     BINANCE_API_SECRET: binanceApiSecret,
+    BINANCE_SQUARE_OPENAPI_KEY: binanceSquareOpenApiKey,
   });
   const refreshed = createAppConfig();
   output.write(formatInfoBlock("Onboard Save", "配置已保存，正在准备启动本地服务。", "success"));

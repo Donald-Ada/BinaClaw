@@ -9,7 +9,7 @@ export type JsonSchema = {
   oneOf?: JsonSchema[];
 };
 
-export type ToolAuthScope = "none" | "spot" | "futures" | "wallet";
+export type ToolAuthScope = "none" | "spot" | "futures" | "wallet" | "square";
 export type BinanceRequestMethod = "GET" | "POST" | "DELETE";
 export type BinanceRequestScope = "spot" | "futures" | "wallet";
 export type SkillTransportKind =
@@ -50,6 +50,7 @@ export interface TelegramConfig {
 export interface BinanceConfig {
   apiKey?: string;
   apiSecret?: string;
+  squareOpenApiKey?: string;
   useTestnet: boolean;
   recvWindow: number;
   spotBaseUrl: string;
@@ -215,6 +216,9 @@ export interface SkillEndpointHint {
   optionalParams: string[];
   transport: Exclude<SkillTransportKind, "builtin" | "memory">;
   userAgent?: string;
+  apiKeyHeaderName?: string;
+  staticHeaders?: Record<string, string>;
+  usesJsonBody?: boolean;
   dangerLevel: "readonly" | "mutating";
 }
 
@@ -251,6 +255,8 @@ export interface SkillAuthHints {
   signatureAlgorithms: string[];
   headerNames: string[];
   userAgent?: string;
+  apiKeyHeaderName?: string;
+  staticHeaders?: Record<string, string>;
   baseUrls: string[];
   confirmOnTransactions: boolean;
 }

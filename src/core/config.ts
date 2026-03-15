@@ -72,6 +72,7 @@ export function createAppConfig(
     binance: {
       apiKey: env.BINANCE_API_KEY ?? localEnv.BINANCE_API_KEY,
       apiSecret: env.BINANCE_API_SECRET ?? localEnv.BINANCE_API_SECRET,
+      squareOpenApiKey: env.BINANCE_SQUARE_OPENAPI_KEY ?? localEnv.BINANCE_SQUARE_OPENAPI_KEY,
       useTestnet,
       recvWindow,
       spotBaseUrl:

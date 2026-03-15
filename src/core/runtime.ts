@@ -22,6 +22,7 @@ export async function compileSkillRuntime(
   baseRegistry: Map<string, ToolDefinition>,
   config: AppConfig,
   client = new BinanceClient(config.binance),
+  fetchImpl: typeof fetch = fetch,
 ): Promise<CompiledSkillRuntime> {
   const registry = new Map<string, ToolDefinition>();
 
@@ -38,7 +39,7 @@ export async function compileSkillRuntime(
     }
 
     for (const endpoint of skill.knowledge.endpointHints) {
-      registry.set(endpoint.id, createEndpointToolDefinition(skill, endpoint, config, client));
+      registry.set(endpoint.id, createEndpointToolDefinition(skill, endpoint, config, client, fetchImpl));
     }
 
     for (const executionHint of skill.knowledge.executionHints) {
@@ -80,10 +81,16 @@ function createEndpointToolDefinition(
   endpoint: SkillEndpointHint,
   config: AppConfig,
   client: BinanceClient,
+  fetchImpl: typeof fetch,
 ): ToolDefinition {
   const inputSchema = buildEndpointInputSchema(endpoint);
   const dangerous = endpoint.dangerLevel === "mutating" || requiresApproval(skill.knowledge.policyRules, endpoint.id);
-  const authScope = endpoint.authRequired ? "spot" : "none";
+  const authScope =
+    endpoint.apiKeyHeaderName === "X-Square-OpenAPI-Key"
+      ? "square"
+      : endpoint.transport === "binance-signed-http"
+        ? "spot"
+        : "none";
 
   return {
     id: endpoint.id,
@@ -99,7 +106,7 @@ function createEndpointToolDefinition(
     path: endpoint.path,
     handler: async (input) => {
       try {
-        const data = await executeEndpointTransport(skill, endpoint, input, config, client);
+        const data = await executeEndpointTransport(skill, endpoint, input, config, client, fetchImpl);
         return asToolResult(endpoint.id, data);
       } catch (error) {
         return asToolError(endpoint.id, error);
@@ -182,30 +189,72 @@ async function executeEndpointTransport(
   input: Record<string, unknown>,
   config: AppConfig,
   client: BinanceClient,
+  fetchImpl: typeof fetch,
 ): Promise<unknown> {
   const params = normalizeParams(input);
-  const baseUrl = skill.knowledge.authHints.baseUrls[0] ?? config.binance.webBaseUrl;
-  const headers = buildHeaders(skill);
+  const baseUrl = resolveEndpointBaseUrl(skill, endpoint, config.binance.webBaseUrl);
+  const headers = buildHeaders(skill, endpoint, config);
 
   switch (endpoint.transport) {
     case "binance-signed-http":
       return client.requestSignedAbsolute(baseUrl, endpoint.method, endpoint.path, params, headers);
     case "binance-public-http":
+      if (endpoint.method !== "GET" && endpoint.usesJsonBody) {
+        return executeGenericHttp(baseUrl, endpoint, params, headers, fetchImpl);
+      }
       return client.requestPublicAbsolute(baseUrl, endpoint.path, params, headers, endpoint.method);
     case "http":
-      return executeGenericHttp(baseUrl, endpoint, params, headers);
+      return executeGenericHttp(baseUrl, endpoint, params, headers, fetchImpl);
     default:
       throw new Error(`未支持的 transport: ${endpoint.transport}`);
   }
 }
 
-function buildHeaders(skill: InstalledSkill): Record<string, string> {
-  const headers: Record<string, string> = {};
+function resolveEndpointBaseUrl(
+  skill: InstalledSkill,
+  endpoint: SkillEndpointHint,
+  fallbackBaseUrl: string,
+): string {
+  const candidates = skill.knowledge.authHints.baseUrls ?? [];
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate.replace(/[`'"]/g, ""));
+      const pathname = url.pathname.trim();
+      if (
+        pathname &&
+        pathname !== "/" &&
+        (pathname === endpoint.path || pathname.startsWith(endpoint.path) || endpoint.path.startsWith(pathname))
+      ) {
+        return url.origin;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  try {
+    const fallback = new URL(fallbackBaseUrl.replace(/[`'"]/g, ""));
+    return fallback.origin;
+  } catch {
+    return fallbackBaseUrl;
+  }
+}
+
+function buildHeaders(skill: InstalledSkill, endpoint: SkillEndpointHint, config: AppConfig): Record<string, string> {
+  const headers: Record<string, string> = {
+    ...(endpoint.staticHeaders ?? {}),
+  };
   const userAgentRule = skill.knowledge.policyRules.find((rule) => rule.kind === "user-agent" && rule.value);
   if (userAgentRule?.value) {
     headers["User-Agent"] = userAgentRule.value;
   } else if (skill.knowledge.authHints.userAgent) {
     headers["User-Agent"] = skill.knowledge.authHints.userAgent;
+  }
+  if (endpoint.apiKeyHeaderName === "X-Square-OpenAPI-Key") {
+    if (!config.binance.squareOpenApiKey) {
+      throw new Error("缺少 BINANCE_SQUARE_OPENAPI_KEY，当前无法发布 Binance Square 帖子。");
+    }
+    headers["X-Square-OpenAPI-Key"] = config.binance.squareOpenApiKey;
   }
   return headers;
 }
@@ -215,18 +264,38 @@ async function executeGenericHttp(
   endpoint: SkillEndpointHint,
   params: Record<string, string | number | undefined>,
   headers: Record<string, string>,
+  fetchImpl: typeof fetch,
 ): Promise<unknown> {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== "") {
+  const sanitizedParams = Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+  );
+  const requestHeaders = { ...headers };
+
+  if (endpoint.method === "GET") {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(sanitizedParams)) {
       search.set(key, String(value));
     }
+    const query = search.toString();
+    const url = `${baseUrl}${endpoint.path}${query ? `?${query}` : ""}`;
+    const response = await fetchImpl(url, {
+      method: endpoint.method,
+      headers: requestHeaders,
+    });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return await response.json().catch(() => response.text());
   }
-  const query = search.toString();
-  const url = `${baseUrl}${endpoint.path}${query ? `?${query}` : ""}`;
-  const response = await fetch(url, {
+
+  if (!requestHeaders["Content-Type"] && endpoint.usesJsonBody) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+  const url = `${baseUrl}${endpoint.path}`;
+  const response = await fetchImpl(url, {
     method: endpoint.method,
-    headers,
+    headers: requestHeaders,
+    body: Object.keys(sanitizedParams).length > 0 ? JSON.stringify(sanitizedParams) : undefined,
   });
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);

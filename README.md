@@ -4,6 +4,10 @@
 
 Binance-focused AI agent with a terminal-first workflow, official Binance skills, Telegram access, and approval-gated trading actions.
 
+Full project story and design notes are available in Chinese:
+
+- [BinaClaw Project Guide (中文)](./docs/BinaClaw-Guide.zh-CN.md)
+
 ## What It Does
 
 - Analyzes markets with official Binance-style `SKILL.md` packages
@@ -41,6 +45,9 @@ binaclaw onboard
 - `BRAVE_SEARCH_API_KEY`
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
+- `BINANCE_SQUARE_OPENAPI_KEY`
+
+`BINANCE_SQUARE_OPENAPI_KEY` is required if you want BinaClaw to publish posts through the bundled `square-post` skill.
 
 After setup, BinaClaw will:
 
@@ -53,8 +60,9 @@ After setup, BinaClaw will:
 
 - `OPENAI_API_KEY`, `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `BRAVE_SEARCH_API_KEY`
   Stored in `config.json` unless overridden by shell env vars.
-- `BINANCE_API_KEY`, `BINANCE_API_SECRET`
+- `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `BINANCE_SQUARE_OPENAPI_KEY`
   Stored in `~/.binaclaw/env.local` and loaded locally at runtime. They are not written into `config.json`.
+  `BINANCE_SQUARE_OPENAPI_KEY` is the key used for Binance Square posting.
 
 Configuration priority:
 

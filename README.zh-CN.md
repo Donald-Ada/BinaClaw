@@ -4,6 +4,10 @@
 
 一个面向 Binance 生态的 AI Agent，主打终端优先体验，支持官方 Binance Skills、本地 Gateway、Telegram Bot，以及带确认流的交易执行。
 
+项目完整介绍文档：
+
+- [BinaClaw 项目介绍与设计说明](./docs/BinaClaw-Guide.zh-CN.md)
+
 ## 它能做什么
 
 - 基于官方 Binance 风格 `SKILL.md` 做行情分析、账户查询和交易决策
@@ -41,6 +45,9 @@ binaclaw onboard
 - `BRAVE_SEARCH_API_KEY`
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
+- `BINANCE_SQUARE_OPENAPI_KEY`
+
+如果你要让 BinaClaw 通过内置的 `square-post` skill 发 Binance Square 帖子，`BINANCE_SQUARE_OPENAPI_KEY` 是必填项。
 
 配置完成后会自动：
 
@@ -53,8 +60,9 @@ binaclaw onboard
 
 - `OPENAI_API_KEY`、`OPENAI_MODEL`、`TELEGRAM_BOT_TOKEN`、`TELEGRAM_ALLOWED_USER_IDS`、`BRAVE_SEARCH_API_KEY`
   默认写入 `config.json`，也可以被 shell 环境变量覆盖。
-- `BINANCE_API_KEY`、`BINANCE_API_SECRET`
+- `BINANCE_API_KEY`、`BINANCE_API_SECRET`、`BINANCE_SQUARE_OPENAPI_KEY`
   只写入 `~/.binaclaw/env.local`，不会写入 `config.json`。
+  其中 `BINANCE_SQUARE_OPENAPI_KEY` 专门用于 Binance Square 发帖。
 
 配置读取优先级：
 

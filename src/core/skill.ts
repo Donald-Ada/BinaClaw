@@ -490,8 +490,9 @@ function parseParameterHints(section: string): SkillParameterHint[] {
   return Array.from(new Map(results.map((item) => [item.name, item])).values());
 }
 
-function collectAuthHints(sections: SkillSectionMap): SkillAuthHints {
+function collectAuthHints(sections: SkillSectionMap, body = ""): SkillAuthHints {
   const text = [
+    body,
     sections.authentication,
     sections.security,
     sections.instructions,
@@ -502,20 +503,54 @@ function collectAuthHints(sections: SkillSectionMap): SkillAuthHints {
   const signatureAlgorithms = ["HMAC", "RSA", "Ed25519"].filter((item) =>
     text.toLowerCase().includes(item.toLowerCase()),
   );
-  const headerNames = ["X-MBX-APIKEY", "User-Agent"].filter((item) =>
-    text.toLowerCase().includes(item.toLowerCase()),
+  const headerNames = ["X-MBX-APIKEY", "User-Agent", "X-Square-OpenAPI-Key", "Content-Type", "clienttype"].filter(
+    (item) => text.toLowerCase().includes(item.toLowerCase()),
   );
   const baseUrls = Array.from(new Set(text.match(/https?:\/\/[^\s)]+/g) ?? []));
+  const apiKeyHeaderName = headerNames.includes("X-Square-OpenAPI-Key")
+    ? "X-Square-OpenAPI-Key"
+    : headerNames.includes("X-MBX-APIKEY")
+      ? "X-MBX-APIKEY"
+      : undefined;
+  const staticHeaders: Record<string, string> = {};
+  if (/content-type[\s\S]{0,120}application\/json/i.test(text)) {
+    staticHeaders["Content-Type"] = "application/json";
+  }
+  if (/clienttype[\s\S]{0,80}binanceskill/i.test(text)) {
+    staticHeaders.clienttype = "binanceSkill";
+  }
 
   return {
-    requiresApiKey: /apikey/i.test(text),
+    requiresApiKey: /apikey|api[\s-]*key|openapi[\s-]*key|x-square-openapi-key/i.test(text),
     requiresSecretKey: /secret(key)?/i.test(text),
     signatureAlgorithms,
     headerNames,
     userAgent: text.match(/User-Agent[^`A-Za-z0-9-]*[`"]?([^`\n"]+)[`"]?/i)?.[1]?.trim(),
+    apiKeyHeaderName,
+    staticHeaders,
     baseUrls,
     confirmOnTransactions: /mainnet/i.test(text) && /(confirm|确认)/i.test(text),
   };
+}
+
+function determineEndpointTransport(
+  rawUrl: string,
+  path: string,
+  authRequired: boolean,
+  authHints: SkillAuthHints,
+): SkillEndpointHint["transport"] {
+  const binanceLike = rawUrl.includes("binance.com") || path.startsWith("/bapi/");
+  if (!authRequired) {
+    return binanceLike ? "binance-public-http" : "http";
+  }
+  const requiresBinanceSignature =
+    authHints.requiresSecretKey ||
+    authHints.signatureAlgorithms.length > 0 ||
+    authHints.apiKeyHeaderName === "X-MBX-APIKEY";
+  if (binanceLike && requiresBinanceSignature) {
+    return "binance-signed-http";
+  }
+  return "http";
 }
 
 function parseQuickReferenceEndpoints(
@@ -545,17 +580,12 @@ function parseQuickReferenceEndpoints(
       const description = row.description ?? row.notes ?? row.summary ?? row.api ?? path;
       const operation = row.name ?? row.operation ?? row.api ?? deriveOperationName(description, path);
       const authValue = (row.auth ?? row.authentication ?? row.requiresauth ?? "").toLowerCase();
-      const authRequired = /(yes|true|required|signed|auth|private|是)/.test(authValue);
+      const authRequired =
+        /(yes|true|required|signed|auth|private|是)/.test(authValue) ||
+        (!authValue && authHints.requiresApiKey);
       const requiredParams = splitParamNames(row.requiredparams ?? row.required ?? "");
       const optionalParams = splitParamNames(row.optionalparams ?? row.optional ?? "");
-      const transport =
-        baseUrl?.includes("binance.com") || path.startsWith("/bapi/")
-          ? authRequired
-            ? "binance-signed-http"
-            : "binance-public-http"
-          : authRequired
-            ? "http"
-            : "http";
+      const transport = determineEndpointTransport(baseUrl ?? path, path, authRequired, authHints);
       const mergedRequired = requiredParams.length > 0 ? requiredParams : parameterHints.filter((item) => item.required).map((item) => item.name);
       const mergedOptional = optionalParams.length > 0 ? optionalParams : parameterHints.filter((item) => !item.required).map((item) => item.name);
 
@@ -570,6 +600,9 @@ function parseQuickReferenceEndpoints(
         optionalParams: Array.from(new Set(mergedOptional)),
         transport,
         userAgent: authHints.userAgent,
+        apiKeyHeaderName: authHints.apiKeyHeaderName,
+        staticHeaders: authHints.staticHeaders && Object.keys(authHints.staticHeaders).length > 0 ? authHints.staticHeaders : undefined,
+        usesJsonBody: authHints.staticHeaders?.["Content-Type"] === "application/json",
         dangerLevel: determineDangerLevel(description, operation, path, method),
       });
     }
@@ -607,7 +640,7 @@ function parseApiBlocks(
   const namespace = deriveSkillNamespace(manifest, rootDir);
   const blocks = Array.from(
     body.matchAll(
-      /^#{2,4}\s+(.+?)\n[\s\S]*?(?:\*\*Method\*\*:\s*(GET|POST|DELETE|PUT)|###\s*Method:\s*(GET|POST|DELETE|PUT)|Method:\s*(GET|POST|DELETE|PUT))[\s\S]*?(?:\*\*URL\*\*:\s*|###\s*URL:\s*|URL:\s*)(?:\s*\n```[\s\S]*?\n)?\s*(https?:\/\/[^\s`]+|\/[^\s`]+)(?:\s*\n```)?[\s\S]*?(?=^#{2,4}\s+|\Z)/gim,
+      /^##+\s+(API(?:\s+Endpoint)?\b.+?)\n[\s\S]*?(?:\*\*Method\*\*:\s*(GET|POST|DELETE|PUT)|###\s*Method:\s*(GET|POST|DELETE|PUT)|Method:\s*(GET|POST|DELETE|PUT))[\s\S]*?(?:\*\*URL\*\*:\s*|###\s*URL:\s*|URL:\s*)(?:\s*\n```[\s\S]*?\n)?\s*(https?:\/\/[^\s`]+|\/[^\s`]+)(?:\s*\n```)?[\s\S]*?(?=^##+\s+|\Z)/gim,
     ),
   );
 
@@ -624,17 +657,11 @@ function parseApiBlocks(
     const authRequired =
       /apikey|secret|x-mbx-apikey|authentication requires/i.test(block[0] ?? "") ||
       authHints.requiresApiKey;
-    const transport = url.includes("binance.com")
-      ? authRequired
-        ? "binance-signed-http"
-        : "binance-public-http"
-      : authRequired
-        ? "http"
-        : "http";
+    const transport = determineEndpointTransport(url, path, authRequired, authHints);
     endpoints.push({
-      id: `${namespace}.${deriveOperationName(description, path)}`,
-      operation: description,
-      description,
+      id: `${namespace}.${deriveOperationName(normalizeApiBlockTitle(description, path), path)}`,
+      operation: normalizeApiBlockTitle(description, path),
+      description: normalizeApiBlockTitle(description, path),
       method: method as SkillEndpointHint["method"],
       path,
       authRequired,
@@ -642,11 +669,23 @@ function parseApiBlocks(
       optionalParams: parameterHints.filter((item) => !item.required).map((item) => item.name),
       transport,
       userAgent: authHints.userAgent,
+      apiKeyHeaderName: authHints.apiKeyHeaderName,
+      staticHeaders: authHints.staticHeaders && Object.keys(authHints.staticHeaders).length > 0 ? authHints.staticHeaders : undefined,
+      usesJsonBody: authHints.staticHeaders?.["Content-Type"] === "application/json",
       dangerLevel: determineDangerLevel(description, description, path, method),
     });
   }
 
   return endpoints;
+}
+
+function normalizeApiBlockTitle(title: string, path: string): string {
+  const cleaned = title.replace(/^api(?:\s+endpoint)?(?:\s+\d+)?\s*[:：-]\s*/i, "").trim();
+  if (/^(overview|notes|authentication|security|agent behavior)$/i.test(cleaned)) {
+    const parts = path.split("/").filter(Boolean);
+    return parts.slice(-2).join(" ");
+  }
+  return cleaned || path.split("/").filter(Boolean).slice(-2).join(" ");
 }
 
 function determineDangerLevel(
@@ -778,7 +817,7 @@ async function buildSkillKnowledge(
 ): Promise<SkillKnowledge> {
   const sections = collectSections(body);
   const parameterHints = parseParameterHints(sections.parameters ?? "");
-  const authHints = collectAuthHints(sections);
+  const authHints = collectAuthHints(sections, body);
   const endpointHints = Array.from(
     new Map(
       [

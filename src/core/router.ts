@@ -10,7 +10,7 @@ const FUTURES_WORDS = ["合约", "永续", "futures", "perp", "做多", "做空"
 const BALANCE_WORDS = ["余额", "资产", "账户", "持仓", "balance", "position"];
 const ORDER_WORDS = ["订单", "成交", "open order", "撤单", "cancel"];
 const MARKET_WORDS = ["行情", "价格", "ticker", "depth", "k线", "分析", "funding", "走势", "能买吗", "能不能买", "怎么看", "怎么样", "值不值得"];
-const NEWS_WORDS = ["新闻", "资讯", "热点", "signal", "广场", "动态"];
+const NEWS_WORDS = ["新闻", "资讯", "热点", "signal", "广场", "动态", "发帖", "帖子", "square", "post"];
 const WEB3_WORDS = ["web3", "链上", "合约地址", "token", "代币"];
 const MEMORY_WORDS = ["之前", "上次", "历史", "记得", "偏好", "recent", "remember", "history", "memory"];
 const SYMBOL_STOPWORDS = new Set([
@@ -238,7 +238,7 @@ function scoreSkill(skill: InstalledSkill, input: string, intent: IntentAnalysis
     score += keywordScore(haystack, ["market", "ticker", "depth", "k线", "klines", "alpha", "exchange", "price", "funding", "signal"]);
   }
   if (intent.categories.includes("news")) {
-    score += keywordScore(haystack, ["news", "signal", "热点", "资讯", "square", "post"]);
+    score += keywordScore(haystack, ["news", "signal", "热点", "资讯", "square", "post", "发帖", "帖子", "广场"]);
   }
   if (intent.categories.includes("web3")) {
     score += keywordScore(haystack, ["web3", "token", "address", "audit", "链上", "合约"]);

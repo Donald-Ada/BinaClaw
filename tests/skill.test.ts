@@ -196,6 +196,32 @@ test("parseSkillDocument keeps full official spot Quick Reference including /api
   assert.ok(placeOrder?.optionalParams.includes("quoteOrderQty"));
 });
 
+test("parseSkillDocument recognizes Binance Square posting endpoint as custom authenticated HTTP", async () => {
+  const raw = await readFile(join(process.cwd(), "skills", "square-post", "SKILL.md"), "utf8");
+  const parsed = (await parseSkillDocument(raw, join(process.cwd(), "skills", "square-post", "SKILL.md"))).skill;
+
+  const addContent = parsed.knowledge.endpointHints.find((item) => item.path === "/bapi/composite/v1/public/pgc/openApi/content/add");
+  assert.ok(addContent);
+  assert.equal(addContent?.authRequired, true);
+  assert.equal(addContent?.transport, "http");
+  assert.equal(addContent?.apiKeyHeaderName, "X-Square-OpenAPI-Key");
+  assert.equal(addContent?.staticHeaders?.["Content-Type"], "application/json");
+  assert.equal(addContent?.staticHeaders?.clienttype, "binanceSkill");
+});
+
+test("parseSkillDocument keeps crypto market rank API block names readable and stable", async () => {
+  const raw = await readFile(join(process.cwd(), "skills", "crypto-market-rank", "SKILL.md"), "utf8");
+  const parsed = (await parseSkillDocument(raw, join(process.cwd(), "skills", "crypto-market-rank", "SKILL.md"))).skill;
+
+  const endpointIds = parsed.knowledge.endpointHints.map((item) => item.id);
+  assert.ok(endpointIds.includes("rank.unifiedTokenRank"));
+  assert.ok(endpointIds.includes("rank.smartMoneyInflowRank"));
+  assert.ok(endpointIds.includes("rank.addressPnlRank"));
+  assert.ok(!endpointIds.some((item) => item.includes("aPI2")));
+  assert.ok(!endpointIds.some((item) => item.includes("exampleRequest")));
+  assert.ok(!endpointIds.some((item) => item.includes("rankTypes")));
+});
+
 test("parseSkillDocument extracts structured Binance tool definitions from Available APIs", async () => {
   const raw = `---
 name: "demo-skill"

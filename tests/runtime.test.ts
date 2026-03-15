@@ -200,3 +200,82 @@ Return JSON.
   assert.equal(runtime.toolRegistry.get("assets.fundingWallet")?.dangerous, false);
   assert.equal(runtime.toolRegistry.get("assets.userUniversalTransfer")?.dangerous, true);
 });
+
+test("compileSkillRuntime executes Binance Square posting endpoint with Square key header and JSON body", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "binaclaw-square-"));
+  const raw = await readFile(join(process.cwd(), "skills", "square-post", "SKILL.md"), "utf8");
+  const parsed = (await parseSkillDocument(raw, join(process.cwd(), "skills", "square-post", "SKILL.md"))).skill;
+  const config = createAppConfig(
+    {
+      BINACLAW_HOME: rootDir,
+      BINANCE_SQUARE_OPENAPI_KEY: "square-demo-key",
+    },
+    process.cwd(),
+  );
+
+  let requestedUrl = "";
+  let requestedMethod = "";
+  let requestedHeaders: HeadersInit | undefined;
+  let requestedBody = "";
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestedUrl = String(input);
+    requestedMethod = String(init?.method ?? "GET");
+    requestedHeaders = init?.headers;
+    requestedBody = String(init?.body ?? "");
+    return new Response(JSON.stringify({ code: "000000", data: { id: "123456" } }), { status: 200 });
+  }) as typeof fetch;
+
+  const runtime = await compileSkillRuntime(
+    [parsed],
+    new Map(),
+    config,
+    new BinanceClient(config.binance),
+    fetchImpl,
+  );
+  const endpoint = parsed.knowledge.endpointHints.find((item) => item.path === "/bapi/composite/v1/public/pgc/openApi/content/add");
+  const tool = endpoint ? runtime.toolRegistry.get(endpoint.id) : undefined;
+  const result = await tool?.handler({ bodyTextOnly: "BTC 继续强势，注意风险。" }, { config, now: () => new Date() });
+
+  assert.equal(result?.ok, true);
+  assert.equal(tool?.authScope, "square");
+  assert.equal(requestedMethod, "POST");
+  assert.ok(requestedUrl.endsWith("/bapi/composite/v1/public/pgc/openApi/content/add"));
+  assert.ok(JSON.stringify(requestedHeaders).includes("X-Square-OpenAPI-Key"));
+  assert.ok(JSON.stringify(requestedHeaders).includes("binanceSkill"));
+  assert.ok(JSON.stringify(requestedHeaders).includes("application/json"));
+  assert.ok(requestedBody.includes("bodyTextOnly"));
+});
+
+test("compileSkillRuntime uses the Web3 origin for crypto market rank endpoints", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "binaclaw-rank-"));
+  const raw = await readFile(join(process.cwd(), "skills", "crypto-market-rank", "SKILL.md"), "utf8");
+  const parsed = (await parseSkillDocument(raw, join(process.cwd(), "skills", "crypto-market-rank", "SKILL.md"))).skill;
+  const config = createAppConfig({ BINACLAW_HOME: rootDir }, process.cwd());
+
+  let requestedUrl = "";
+  let requestedMethod = "";
+  let requestedBody = "";
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestedUrl = String(input);
+    requestedMethod = String(init?.method ?? "GET");
+    requestedBody = String(init?.body ?? "");
+    return new Response(JSON.stringify({ code: "000000", data: { tokens: [] } }), { status: 200 });
+  }) as typeof fetch;
+
+  const runtime = await compileSkillRuntime(
+    [parsed],
+    new Map(),
+    config,
+    new BinanceClient(config.binance),
+    fetchImpl,
+  );
+  const endpoint = parsed.knowledge.endpointHints.find((item) => item.id === "rank.unifiedTokenRank");
+  const tool = endpoint ? runtime.toolRegistry.get(endpoint.id) : undefined;
+  const result = await tool?.handler({ rankType: 10, page: 1, size: 20 }, { config, now: () => new Date() });
+
+  assert.equal(result?.ok, true);
+  assert.equal(requestedMethod, "POST");
+  assert.ok(requestedUrl.startsWith("https://web3.binance.com/"));
+  assert.ok(requestedUrl.endsWith("/bapi/defi/v1/public/wallet-direct/buw/wallet/market/token/pulse/unified/rank/list"));
+  assert.ok(requestedBody.includes("\"rankType\":10"));
+});

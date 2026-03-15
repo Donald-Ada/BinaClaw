@@ -1,104 +1,37 @@
 # BinaClaw
 
-Terminal-first Binance AI agent with skill-first runtime, workspace memory, persistent sessions, and approval-gated trading actions.
+[English](./README.md) | [简体中文](./README.zh-CN.md)
 
-BinaClaw is built for users who want a local CLI agent that can:
+Binance-focused AI agent with a terminal-first workflow, official Binance skills, Telegram access, and approval-gated trading actions.
 
-- reason over official Binance-style `SKILL.md` packages
-- use the official OpenAI Responses API
-- keep long-running session state in a workspace
-- inspect its own trace and session state
-- treat market data as real-time and dangerous actions as confirmable
+## What It Does
 
-## Overview
+- Analyzes markets with official Binance-style `SKILL.md` packages
+- Runs as a local CLI desk or a shared Gateway + Telegram bot
+- Keeps persistent workspace memory and sessions under `~/.binaclaw`
+- Requires explicit confirmation before dangerous trading actions
+- Stores Binance secrets in a local env file instead of `config.json`
 
-BinaClaw combines four ideas in one CLI product:
+## Quick Start
 
-1. `Skill-first runtime`
-   The model chooses skills first, then the runtime compiles only the selected skills into executable tools for the current turn.
-2. `Workspace as source of truth`
-   Session state, memory, trace context, tool index, and bootstrap documents live under a persistent workspace.
-3. `Session-centered agent loop`
-   Long chats keep their state in the workspace so CLI, Gateway, and Telegram can continue from the same conversation.
-4. `Approval-gated execution`
-   Read-only requests run directly. Dangerous actions require explicit confirmation.
+### Requirements
 
-## Table of Contents
-
-- [Prerequisites](#prerequisites)
-- [Install](#install)
-- [Configure](#configure)
-- [Run](#run)
-- [Common Commands](#common-commands)
-- [How to Debug](#how-to-debug)
-- [Workspace Layout](#workspace-layout)
-- [Skills](#skills)
-- [Safety Model](#safety-model)
-- [Architecture](#architecture)
-- [Development](#development)
-
-## Prerequisites
-
-- Node `>=20`
+- Node.js `>=22`
 - npm
 
-## Install
-
-### From npm
+### Install
 
 ```bash
 npm install -g binaclaw
 ```
 
-Then run:
+### First Run
 
 ```bash
 binaclaw onboard
 ```
 
-### From source
-
-```bash
-npm install
-npm run build
-```
-
-```bash
-node dist/index.js chat
-```
-
-## Configure
-
-For the fastest first-time setup:
-
-```bash
-binaclaw onboard
-```
-
-`binaclaw onboard` will:
-
-- ask for:
-  - `BINACLAW_GATEWAY_PORT`
-  - `OPENAI_API_KEY`
-  - `OPENAI_MODEL`
-  - `TELEGRAM_BOT_TOKEN`
-  - `TELEGRAM_ALLOWED_USER_IDS`
-  - `BRAVE_SEARCH_API_KEY`
-  - `BINANCE_API_KEY`
-  - `BINANCE_API_SECRET`
-- save OpenAI / Telegram / Brave settings into `~/.binaclaw/config.json`
-- save Binance secrets into `~/.binaclaw/env.local`
-- start `gateway` in the background
-- start the Telegram provider in the background
-- print a success message when both are healthy
-
-If you prefer manual setup, start chat and run:
-
-```text
-/config
-```
-
-Minimum recommended configuration:
+`binaclaw onboard` will guide you through:
 
 - `BINACLAW_GATEWAY_PORT`
 - `OPENAI_API_KEY`
@@ -108,159 +41,80 @@ Minimum recommended configuration:
 - `BRAVE_SEARCH_API_KEY`
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
+
+After setup, BinaClaw will:
+
+- save app settings into `~/.binaclaw/config.json`
+- save Binance secrets into `~/.binaclaw/env.local`
+- start the local Gateway in the background
+- start the Telegram provider in the background
+
+## Where Secrets Live
+
+- `OPENAI_API_KEY`, `OPENAI_MODEL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `BRAVE_SEARCH_API_KEY`
+  Stored in `config.json` unless overridden by shell env vars.
+- `BINANCE_API_KEY`, `BINANCE_API_SECRET`
+  Stored in `~/.binaclaw/env.local` and loaded locally at runtime. They are not written into `config.json`.
 
 Configuration priority:
 
-1. shell environment variables
-2. `~/.binaclaw/env.local` for locally stored Binance secrets managed by `binaclaw onboard`
-3. `config.json` for local app settings and non-Binance credentials
-4. code defaults
+1. Shell environment variables
+2. `~/.binaclaw/env.local`
+3. `~/.binaclaw/config.json`
+4. Built-in defaults
 
-They are never persisted to `config.json`. If older versions wrote them there, BinaClaw now ignores and purges them on startup.
+## Usage
 
-Default config path:
-
-```text
-~/.binaclaw/config.json
-```
-
-Default local env path:
-
-```text
-~/.binaclaw/env.local
-```
-
-To keep all state inside the current project directory:
-
-```bash
-BINACLAW_HOME="$PWD/.binaclaw" binaclaw chat
-```
-
-Important config values:
-
-- `OPENAI_API_KEY`
-  Official OpenAI API key. Can be provided via `/config` or environment variable.
-- `OPENAI_MODEL`
-  Model name.
-- `OPENAI_BASE_URL`
-  Optional. Defaults to `https://api.openai.com/v1`.
-- `BINACLAW_GATEWAY_URL`
-  Optional. If set, chat uses the shared gateway instead of creating a local in-process agent.
-- `BINACLAW_GATEWAY_HOST`
-  Gateway listen host. Defaults to `127.0.0.1`.
-- `BINACLAW_GATEWAY_PORT`
-  Gateway listen port. Defaults to `8787`.
-- `TELEGRAM_BOT_TOKEN`
-  Optional. Enables the Telegram provider. Can be provided via `/config` or environment variable.
-- `TELEGRAM_ALLOWED_USER_IDS`
-  Optional comma-separated allowlist for Telegram DM users.
-- `TELEGRAM_ALLOWED_CHAT_IDS`
-  Optional comma-separated allowlist for Telegram chats/groups.
-- `BRAVE_SEARCH_API_KEY`
-  Enables news and Web3-style search. Can be provided via `/config` or environment variable.
-- `BINANCE_API_KEY`
-  Required for private Binance endpoints. Must be supplied via local environment variable.
-- `BINANCE_API_SECRET`
-  Required for signed Binance requests. Must be supplied via local environment variable.
-
-## Run
-
-### Interactive chat
+### Local Terminal
 
 ```bash
 binaclaw chat
 ```
 
-### One-shot onboarding
-
-```bash
-binaclaw onboard
-```
-
-After onboarding succeeds, you can chat with your bot directly in Telegram. You do not need to keep a terminal window open for `gateway` or `telegram`.
-
-### Shared gateway mode
-
-Terminal 1:
-
-```bash
-binaclaw gateway
-```
-
-停止后台 Gateway：
-
-```bash
-binaclaw gateway stop
-```
-
-Terminal 2:
-
-```bash
-BINACLAW_GATEWAY_URL="ws://127.0.0.1:8787" binaclaw chat
-```
-
-This lets multiple terminal clients share the same persisted session store and runtime state.
-
-### Telegram mode
-
-Terminal 1:
-
-```bash
-binaclaw gateway
-```
-
-Terminal 2:
-
-```bash
-TELEGRAM_BOT_TOKEN="your-bot-token" \
-BINACLAW_GATEWAY_URL="ws://127.0.0.1:8787" \
-binaclaw telegram
-```
-
-停止后台 Telegram provider：
-
-```bash
-binaclaw telegram stop
-```
-
-The Telegram provider is implemented with `grammY` and forwards incoming updates into the shared gateway runtime.
-
-In this mode, Telegram messages are mapped to gateway-managed session keys:
-
-- private chat: `telegram:dm:<userId>`
-- group chat: `telegram:group:<chatId>`
-- topic thread: `telegram:group:<chatId>:topic:<threadId>`
-
-### Example prompts
+Common prompts:
 
 ```text
 今天 BNB 能买吗
 分析一下 BTC 和 ETH 今天怎么样
 帮我查下我的资产
-查一下 alpha ticker
-最近和 SOL 相关的热点新闻
+BTCUSDT 现货，市价买入 20 USDT
+卖出全部 BTC 为 USDT，按市价
 ```
 
-## Common Commands
+### Telegram
 
-### CLI commands
+Run onboarding once, then chat with your bot directly in Telegram.
+
+Typical flow:
+
+1. Send a market or account question
+2. Let BinaClaw analyze or prepare an order
+3. Reply `CONFIRM` or `确认` only when you really want to execute
+
+### Background Services
 
 ```bash
-binaclaw chat
-binaclaw onboard
-binaclaw config
-binaclaw session
-binaclaw session clear
-binaclaw session compact
-binaclaw skills list
-binaclaw skills add <source>
-binaclaw auth status
-binaclaw doctor
 binaclaw gateway
+binaclaw gateway stop
 binaclaw telegram
+binaclaw telegram stop
 ```
 
-### In-chat commands
+## Core Commands
+
+```bash
+binaclaw onboard
+binaclaw chat
+binaclaw config
+binaclaw auth status
+binaclaw doctor
+binaclaw skills list
+binaclaw skills add <source>
+binaclaw session
+binaclaw session clear
+```
+
+In chat:
 
 ```text
 /help
@@ -269,7 +123,6 @@ binaclaw telegram
 /session
 /session json
 /session clear
-/session compact now
 /trace
 /trace json
 /trace clear
@@ -282,73 +135,33 @@ binaclaw telegram
 /exit
 ```
 
-## How to Debug
+## Safety Model
 
-This is the part Dexter gets very right: a product README should tell users where the truth lives when something feels off.
+- Market data is treated as real-time and not cached for trading decisions
+- Public read-only requests run directly
+- Private Binance requests require valid credentials
+- Dangerous actions require explicit confirmation
+- BinaClaw will not claim an order has been filled unless it receives a real exchange response
 
-For BinaClaw, the main debugging entry points are:
+## How It Works
 
-### 1. View structured reasoning
+BinaClaw is split into four layers:
 
-```text
-/trace
-/trace plan
-/trace observation
-/trace approval
-/trace json
-```
-
-`/trace` shows the agent's structured runtime trace, not hidden raw chain-of-thought.
-
-### 2. View session state
-
-```text
-/session
-/session json
-/session compact now
-```
-
-Useful when follow-up turns like `继续` or `那 ETH 呢` feel wrong and you want to inspect the persisted session state.
-
-### 3. Run health checks
-
-```bash
-node src/index.ts doctor
-```
-
-`doctor` reports:
-
-- Node runtime
-- app home
-- config file
-- skills directories
-- loaded skill count
-- workspace `TOOLS.md`
-- workspace sessions index
-- workspace session transcript directory
-- Binance / Brave / OpenAI configuration state
-
-### 4. Inspect workspace files directly
-
-Important files:
-
-- `~/.binaclaw/workspace/sessions/sessions.json`
-- `~/.binaclaw/workspace/sessions/<session-id>.jsonl`
-- `~/.binaclaw/workspace/MEMORY.md`
-- `~/.binaclaw/workspace/USER.md`
-- `~/.binaclaw/workspace/TOOLS.md`
-- `~/.binaclaw/workspace/memory/YYYY-MM-DD.md`
-
-If you set `BINACLAW_HOME`, replace `~/.binaclaw` with your chosen directory.
+1. `Workspace docs`
+   `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`, and daily logs hold long-lived local context.
+2. `Skills`
+   Official Binance `SKILL.md` packages teach the model how to solve domain tasks.
+3. `Tools`
+   Runtime adapters execute Binance, Brave, memory, and local operations.
+4. `Main model calls`
+   The model selects skills, reads the chosen skill docs, decides the endpoint/tool, and either replies directly or summarizes tool results.
 
 ## Workspace Layout
 
-BinaClaw creates a persistent workspace like this:
-
 ```text
-.binaclaw/
+~/.binaclaw/
   config.json
-  memory.json
+  env.local
   skills/
   workspace/
     AGENTS.md
@@ -364,151 +177,23 @@ BinaClaw creates a persistent workspace like this:
     sessions/
       sessions.json
       <session-id>.jsonl
-    skills/
 ```
 
-What these files do:
+## Troubleshooting
 
-- `AGENTS.md`
-  Operating rules and output boundaries.
-- `SOUL.md`
-  Tone and persona.
-- `USER.md`
-  User profile facts such as language, market preference, and watched symbols.
-- `IDENTITY.md`
-  Agent identity.
-- `HEARTBEAT.md`
-  Routine checks.
-- `BOOTSTRAP.md`
-  First-run checklist.
-- `TOOLS.md`
-  Skills and tool index.
-- `MEMORY.md`
-  Durable facts that are not user-profile facts.
-- `memory/YYYY-MM-DD.md`
-  Daily memory log.
-- `sessions/sessions.json`
-  Session index and session metadata.
-- `sessions/<session-id>.jsonl`
-  Append-only session transcript and lifecycle events.
-
-`USER.md` and `MEMORY.md` are intentionally separate:
-
-- `USER.md` stores user profile memory
-- `MEMORY.md` stores non-profile durable facts
-
-That split keeps the agent's memory layer cleaner during long-running sessions.
-
-## Skills
-
-BinaClaw loads skills from two places:
-
-- global skills: `~/.binaclaw/skills`
-- local project skills: `./skills`
-
-If a skill exists in both places, the local project skill wins.
-
-Install additional skills with:
+Check current configuration and health:
 
 ```bash
-node src/index.ts skills add <local-path>
-node src/index.ts skills add <SKILL.md-url>
-node src/index.ts skills add <github-repo-url>
+binaclaw auth status
+binaclaw doctor
 ```
 
-This repository already includes a set of official Binance-style skills, including:
+If something feels off in a live session, inspect:
 
-- `skills/alpha`
-- `skills/assets`
-- `skills/spot`
-- `skills/margin-trading`
-- `skills/derivatives-trading-usds-futures`
-- `skills/query-token-info`
-- `skills/query-address-info`
-- `skills/query-token-audit`
-- `skills/trading-signal`
-- `skills/crypto-market-rank`
-- `skills/meme-rush`
-- `skills/square-post`
-
-### How the skill-first runtime works
-
-On each turn, BinaClaw roughly does this:
-
-1. load session state, workspace memory, and workspace bootstrap docs
-2. let the model select the most relevant skills
-3. lazily load only the selected skills and needed `references/*`
-4. compile those skills into runtime tools
-5. let the model plan against those tools
-6. execute tools and generate the final answer
-
-Supported transport types:
-
-- `builtin`
-- `binance-public-http`
-- `binance-signed-http`
-- `http`
-- `exec`
-- `memory`
-
-`exec` is constrained to the skill root directory.
-
-## Safety Model
-
-- market and price data are not cached
-- public read-only endpoints run directly
-- private read-only endpoints require Binance credentials
-- dangerous actions require explicit confirmation
-- confirmation command: `CONFIRM`
-- cancel command: `CANCEL`
-
-The confirmation prompt is intentionally high level. It should tell the user that an action needs confirmation without dumping raw low-level tool payloads back into the terminal.
-
-## Architecture
-
-Main source layout:
-
-```text
-src/
-  index.ts
-  cli/
-    chat.ts
-    commands.ts
-    config-wizard.ts
-    session.ts
-    trace.ts
-    ui.ts
-  core/
-    agent.ts
-    provider.ts
-    planner.ts
-    router.ts
-    skill.ts
-    runtime.ts
-    tools.ts
-    binance.ts
-    brave.ts
-    memory.ts
-    session.ts
-    workspace.ts
-    approval.ts
-    config.ts
-    types.ts
-skills/
-  ...
-tests/
-  ...
-```
-
-Key files worth reading first:
-
-- `src/core/agent.ts`
-- `src/core/provider.ts`
-- `src/core/skill.ts`
-- `src/core/runtime.ts`
-- `src/core/session.ts`
-- `src/core/memory.ts`
-- `src/core/workspace.ts`
+- `/trace`
+- `/session`
+- `~/.binaclaw/workspace/sessions/sessions.json`
+- `~/.binaclaw/workspace/sessions/<session-id>.jsonl`
 
 ## Development
 
@@ -518,31 +203,24 @@ Install dependencies:
 npm install
 ```
 
-Typecheck:
+Run from source:
+
+```bash
+npm run dev:onboard
+npm run dev:chat
+npm run dev:gateway
+npm run dev:telegram
+```
+
+Build:
+
+```bash
+npm run build
+```
+
+Checks:
 
 ```bash
 npm run typecheck
-```
-
-Run tests:
-
-```bash
 npm test
 ```
-
-Health check:
-
-```bash
-node src/index.ts doctor
-```
-
-## Product Status
-
-This repository is already shaped like a terminal product, but it is not yet a fully published npm release with a compiled `dist/` build pipeline.
-
-If you want to push it over that line, the next product-facing steps are:
-
-1. ship a `dist/` build for a more standard npm CLI install path
-2. verify global install UX with `npm pack` / `npm link`
-3. test real Binance private endpoints with production-like credentials
-4. harden terminal UX across different shells and terminals

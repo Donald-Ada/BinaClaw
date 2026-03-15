@@ -1,6 +1,6 @@
 {
   "name": "binaclaw",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "A Binance-focused CLI AI agent inspired by Dexter and Binance Skills.",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,7 +13,8 @@
   "files": [
     "dist",
     "skills",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "engines": {
     "node": ">=22.0.0"

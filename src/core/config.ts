@@ -1,8 +1,11 @@
-import {existsSync, readFileSync} from "node:fs";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
+import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
+import {chmod, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {join, resolve} from "node:path";
+import {dirname, join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import type {AppConfig, StoredAppConfig} from "./types.ts";
+
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 export function createAppConfig(
   env: Record<string, string | undefined> = process.env,
@@ -10,7 +13,9 @@ export function createAppConfig(
 ): AppConfig {
   const appHome = resolve(env.BINACLAW_HOME ?? join(homedir(), ".binaclaw"));
   const configFile = join(appHome, "config.json");
+  const localEnvFile = join(appHome, "env.local");
   const stored = loadStoredConfig(configFile);
+  const localEnv = loadLocalEnvFile(localEnvFile);
   const useTestnet = readBoolean(env.BINANCE_USE_TESTNET, stored.binance?.useTestnet ?? false);
   const recvWindow = readNumber(env.BINANCE_RECV_WINDOW, stored.binance?.recvWindow ?? 5000);
   const messageCompactionLimit = readNumber(
@@ -50,6 +55,10 @@ export function createAppConfig(
     cwd,
     appHome,
     configFile,
+    localEnvFile,
+    bundledSkillsDir: resolve(env.BINACLAW_BUNDLED_SKILLS_DIR ?? resolveBundledSkillsDir()),
+    runtimeDir: join(appHome, "run"),
+    logDir: join(appHome, "logs"),
     workspaceDir: join(appHome, "workspace"),
     workspaceAgentsFile: join(appHome, "workspace", "AGENTS.md"),
     workspaceSoulFile: join(appHome, "workspace", "SOUL.md"),
@@ -93,8 +102,8 @@ export function createAppConfig(
       model: env.OPENAI_MODEL ?? stored.provider?.model ?? "gpt-4o-mini",
     },
     binance: {
-      apiKey: env.BINANCE_API_KEY,
-      apiSecret: env.BINANCE_API_SECRET,
+      apiKey: env.BINANCE_API_KEY ?? localEnv.BINANCE_API_KEY,
+      apiSecret: env.BINANCE_API_SECRET ?? localEnv.BINANCE_API_SECRET,
       useTestnet,
       recvWindow,
       spotBaseUrl:
@@ -121,14 +130,86 @@ export function createAppConfig(
   };
 }
 
+function resolveBundledSkillsDir(): string {
+  const candidates = [
+    resolve(MODULE_DIR, "../../skills"),
+    resolve(MODULE_DIR, "../skills"),
+    resolve(MODULE_DIR, "skills"),
+  ];
+  const matched = candidates.find((candidate) => hasSkillPackages(candidate));
+  return matched ?? candidates[0]!;
+}
+
+function hasSkillPackages(directory: string): boolean {
+  if (!existsSync(directory)) {
+    return false;
+  }
+  try {
+    const entries = readdirSync(directory, { withFileTypes: true });
+    return entries.some((entry) => {
+      if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
+        return true;
+      }
+      if (!entry.isDirectory()) {
+        return false;
+      }
+      const nested = join(directory, entry.name, "SKILL.md");
+      return existsSync(nested) && statSync(nested).isFile();
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function ensureAppDirectories(config: AppConfig): Promise<void> {
   await mkdir(config.appHome, { recursive: true });
+  await mkdir(config.runtimeDir, { recursive: true });
+  await mkdir(config.logDir, { recursive: true });
   await mkdir(config.globalSkillsDir, { recursive: true });
   await mkdir(config.workspaceDir, { recursive: true });
   await mkdir(config.workspaceSessionsDir, { recursive: true });
   await mkdir(config.workspaceSkillsDir, { recursive: true });
   await mkdir(config.workspaceMemoryDir, { recursive: true });
   await purgeStoredSecrets(config.configFile);
+}
+
+export function loadLocalEnvFile(localEnvFile: string): Record<string, string> {
+  if (!existsSync(localEnvFile)) {
+    return {};
+  }
+
+  try {
+    return parseEnvFile(readFileSync(localEnvFile, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+export async function saveLocalEnvFile(
+  localEnvFile: string,
+  updates: Record<string, string | undefined>,
+): Promise<void> {
+  const current = loadLocalEnvFile(localEnvFile);
+  const next = {
+    ...current,
+    ...updates,
+  };
+
+  for (const [key, value] of Object.entries(next)) {
+    if (!value) {
+      delete next[key];
+    }
+  }
+
+  const keys = Object.keys(next).sort();
+  if (keys.length === 0) {
+    await rm(localEnvFile, { force: true });
+    return;
+  }
+
+  const body = `${keys.map((key) => `${key}=${quoteEnvValue(next[key]!)}`).join("\n")}\n`;
+  await writeFile(localEnvFile, body, { encoding: "utf8", mode: 0o600 });
+  await chmod(localEnvFile, 0o600);
 }
 
 export function loadStoredConfig(configFile: string): StoredAppConfig {
@@ -208,6 +289,43 @@ function sanitizeSection<T extends object>(section: T | undefined): T | undefine
     Object.entries(section).filter(([, value]) => value !== undefined && value !== ""),
   );
   return Object.keys(filtered).length > 0 ? (filtered as T) : undefined;
+}
+
+function parseEnvFile(raw: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const normalized = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
+    const delimiter = normalized.indexOf("=");
+    if (delimiter <= 0) {
+      continue;
+    }
+    const key = normalized.slice(0, delimiter).trim();
+    const value = normalized.slice(delimiter + 1).trim();
+    values[key] = unquoteEnvValue(value);
+  }
+  return values;
+}
+
+function quoteEnvValue(value: string): string {
+  return JSON.stringify(value);
+}
+
+function unquoteEnvValue(value: string): string {
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    try {
+      return JSON.parse(value.startsWith("'") ? `"${value.slice(1, -1).replace(/"/g, "\\\"")}"` : value);
+    } catch {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
 }
 
 function readBoolean(value: string | undefined, fallback: boolean): boolean {

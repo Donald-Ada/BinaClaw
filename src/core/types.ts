@@ -97,6 +97,10 @@ export interface AppConfig {
   cwd: string;
   appHome: string;
   configFile: string;
+  localEnvFile: string;
+  bundledSkillsDir: string;
+  runtimeDir: string;
+  logDir: string;
   workspaceDir: string;
   workspaceAgentsFile: string;
   workspaceSoulFile: string;

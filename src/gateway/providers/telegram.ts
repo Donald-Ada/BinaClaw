@@ -1,5 +1,6 @@
 import {Bot, GrammyError, HttpError} from "grammy";
 import {createAppConfig} from "../../core/config.ts";
+import {markManagedServiceReady} from "../../core/service-manager.ts";
 import type {AppConfig} from "../../core/types.ts";
 import {formatSessionJson, formatSessionView} from "../../cli/session.ts";
 import {formatTraceJson, formatTraceView, isTraceFilterKind} from "../../cli/trace.ts";
@@ -178,7 +179,8 @@ export async function runTelegramProvider(config = createAppConfig()): Promise<v
   await bot.start({
     timeout: config.telegram.pollingTimeoutSeconds,
     allowed_updates: ["message"],
-    onStart: (botInfo) => {
+    onStart: async (botInfo) => {
+      await markManagedServiceReady("telegram", { username: botInfo.username ?? botInfo.first_name });
       console.log(`Telegram provider connected as @${botInfo.username ?? botInfo.first_name}.`);
     },
   });

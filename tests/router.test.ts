@@ -104,6 +104,12 @@ test("inferIntent detects standalone coin mentions in natural analysis prompts",
   assert.ok(intent.categories.includes("market"));
 });
 
+test("inferIntent treats a bare symbol as a market prompt", () => {
+  const intent = inferIntent("BNB");
+  assert.equal(intent.symbol, "BNBUSDT");
+  assert.ok(intent.categories.includes("market"));
+});
+
 test("inferIntent does not hallucinate a symbol for generic market prompts", () => {
   const intent = inferIntent("最新的行情如何");
   assert.equal(intent.symbol, undefined);

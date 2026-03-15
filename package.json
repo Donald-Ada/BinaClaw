@@ -3,26 +3,36 @@
   "version": "0.1.0",
   "description": "A Binance-focused CLI AI agent inspired by Dexter and Binance Skills.",
   "type": "module",
+  "main": "./dist/index.js",
   "bin": {
-    "binaclaw": "./src/index.ts"
+    "binaclaw": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
   },
   "files": [
-    "src",
+    "dist",
     "skills",
     "README.md"
   ],
   "engines": {
-    "node": ">=25.0.0"
+    "node": ">=20.0.0"
   },
   "scripts": {
-    "chat": "node src/index.ts chat",
+    "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
+    "build": "tsup src/index.ts --format esm --platform node --target node20 --out-dir dist --clean --splitting --sourcemap",
+    "chat": "node dist/index.js chat",
+    "dev:chat": "node src/index.ts chat",
     "test": "node --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "node --test tests/*.test.ts && node src/index.ts doctor"
+    "check": "npm run typecheck && npm test && npm run build && node dist/index.js doctor",
+    "pack:check": "npm pack --dry-run",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   },
   "dependencies": {

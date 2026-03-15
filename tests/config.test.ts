@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import {mkdir, mkdtemp, readFile, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
-import {createAppConfig, ensureAppDirectories, saveStoredConfig} from "../src/core/config.ts";
+import {createAppConfig, ensureAppDirectories, saveLocalEnvFile, saveStoredConfig} from "../src/core/config.ts";
 
 test("createAppConfig loads persisted config from app home while keeping Binance secrets env-only", async () => {
   const home = await mkdtemp(join(tmpdir(), "binaclaw-config-"));
@@ -120,6 +120,35 @@ test("createAppConfig prefers environment variables over persisted values", asyn
   assert.equal(config.session.messageCompactionLimit, 30);
   assert.equal(config.gateway.port, 9001);
   assert.deepEqual(config.telegram.allowedUserIds, ["42", "43"]);
+});
+
+test("createAppConfig loads Binance secrets from local env file when shell env is absent", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-config-"));
+  await mkdir(home, { recursive: true });
+  await saveLocalEnvFile(join(home, "env.local"), {
+    BINANCE_API_KEY: "binance-key-from-local-env",
+    BINANCE_API_SECRET: "binance-secret-from-local-env",
+  });
+
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  assert.equal(config.binance.apiKey, "binance-key-from-local-env");
+  assert.equal(config.binance.apiSecret, "binance-secret-from-local-env");
+});
+
+test("saveLocalEnvFile writes Binance secrets with owner-only permissions", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-config-"));
+  const envFile = join(home, "env.local");
+
+  await saveLocalEnvFile(envFile, {
+    BINANCE_API_KEY: "binance-key",
+    BINANCE_API_SECRET: "binance-secret",
+  });
+
+  const raw = await readFile(envFile, "utf8");
+  const fileStat = await stat(envFile);
+  assert.equal(raw.includes("BINANCE_API_KEY"), true);
+  assert.equal(raw.includes("BINANCE_API_SECRET"), true);
+  assert.equal(fileStat.mode & 0o777, 0o600);
 });
 
 test("saveStoredConfig strips Binance secret values before writing config.json", async () => {

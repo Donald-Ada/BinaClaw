@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import {mkdtemp, readFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
 import {BinanceClient} from "../src/core/binance.ts";
 import {createAppConfig} from "../src/core/config.ts";
-import {installSkillsFromSource, parseSkillDocument} from "../src/core/skill.ts";
+import {installSkillsFromSource, loadInstalledSkills, parseSkillDocument} from "../src/core/skill.ts";
 import {createToolRegistryFromSkills} from "../src/core/tools.ts";
 
 test("parseSkillDocument parses manifest, knowledge and warnings", async () => {
@@ -136,6 +136,50 @@ b
   assert.deepEqual(installed.map((item) => item.manifest.name), ["alpha-skill", "beta-skill"]);
   const alphaSkill = await readFile(join(home, "skills", "alpha-skill", "alpha.md"), "utf8");
   assert.ok(alphaSkill.includes("name: \"alpha-skill\""));
+});
+
+test("loadInstalledSkills includes bundled package skills by default", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-bundled-skills-"));
+  const bundled = await mkdtemp(join(tmpdir(), "binaclaw-bundled-source-"));
+  const bundledSkillDir = join(bundled, "alpha");
+  await mkdir(bundledSkillDir, { recursive: true });
+  await writeFile(
+    join(bundledSkillDir, "SKILL.md"),
+    `---
+name: "alpha"
+version: "1.0.0"
+description: "alpha"
+capabilities: ["alpha"]
+requires_auth: false
+dangerous: false
+products: ["spot"]
+tools: ["market.getTicker"]
+---
+
+## When to use
+alpha
+
+## Instructions
+alpha
+
+## Available APIs
+alpha
+
+## Output contract
+alpha
+
+## Examples
+alpha
+`,
+    "utf8",
+  );
+
+  const config = createAppConfig(
+    { BINACLAW_HOME: home, BINACLAW_BUNDLED_SKILLS_DIR: bundled },
+    process.cwd(),
+  );
+  const installed = await loadInstalledSkills(config);
+  assert.ok(installed.some((skill) => skill.manifest.name === "alpha"));
 });
 
 test("parseSkillDocument extracts structured Binance tool definitions from Available APIs", async () => {

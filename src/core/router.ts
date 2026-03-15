@@ -72,6 +72,13 @@ function extractSymbol(input: string): string | undefined {
     return normalizeSymbol(exact[1]);
   }
 
+  const naturalAnalysis = input.match(
+    /(?:具体)?(?:分析(?:一下|下)?|看(?:一下|下)?|查(?:一下|下)?|研究(?:一下|下)?|关注一下)\s*([A-Za-z]{2,12})/i,
+  );
+  if (naturalAnalysis) {
+    return normalizeSymbol(naturalAnalysis[1]);
+  }
+
   const prefixContext = input.match(/(?:买|卖|分析|看看|看下|查询|查下|查查|下单|研究|关注|看|查|做多|做空)\s*([A-Za-z]{2,12})/i);
   if (prefixContext) {
     return normalizeSymbol(prefixContext[1]);
@@ -132,6 +139,9 @@ export function inferIntent(input: string): IntentAnalysis {
   }
   if (matchAny(input, WEB3_WORDS)) {
     categories.add("web3");
+  }
+  if (symbol && categories.size === 0) {
+    categories.add("market");
   }
 
   const lowered = input.toLowerCase();

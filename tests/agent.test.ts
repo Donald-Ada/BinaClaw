@@ -814,6 +814,34 @@ test("agent returns direct clarification from the main planning call when provid
   assert.equal(result.text, "先告诉我你想看哪个交易对，我再继续给你看最新行情。");
 });
 
+test("agent understands natural analysis wording like 分析下BNB without asking for another symbol", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  const agent = new BinaClawAgent(config, {
+    provider: new FakeProvider(),
+    skills: stubSkills,
+    toolRegistry: createTestRegistry(),
+  });
+
+  const result = await agent.handleInput("具体分析下BNB");
+  assert.ok(result.toolResults.length > 0);
+  assert.doesNotMatch(result.text, /哪个交易对/);
+});
+
+test("agent treats a bare symbol as a market request instead of returning an empty fallback", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  const agent = new BinaClawAgent(config, {
+    provider: new FakeProvider(),
+    skills: stubSkills,
+    toolRegistry: createTestRegistry(),
+  });
+
+  const result = await agent.handleInput("BNB");
+  assert.ok(result.toolResults.length > 0);
+  assert.doesNotMatch(result.text, /这轮没有调用工具/);
+});
+
 test("agent keeps approval lifecycle replies local and deterministic", async () => {
   const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
   const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());

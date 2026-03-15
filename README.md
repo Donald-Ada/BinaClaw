@@ -23,8 +23,6 @@ BinaClaw combines four ideas in one CLI product:
 4. `Approval-gated execution`
    Read-only requests run directly. Dangerous actions require explicit confirmation.
 
-This repository is currently source-run with Node 25. It is shaped like an npm CLI package, but you should treat the source-run instructions below as the authoritative setup until you publish it.
-
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
@@ -41,37 +39,52 @@ This repository is currently source-run with Node 25. It is shaped like an npm C
 
 ## Prerequisites
 
-- Node `>=25`
+- Node `>=20`
 - npm
 
-Why Node 25: this repo currently executes TypeScript source directly via Node's native TS support.
-
 ## Install
+
+### From npm
+
+```bash
+npm install -g binaclaw
+```
+
+Then run:
+
+```bash
+binaclaw onboard
+```
 
 ### From source
 
 ```bash
 npm install
+npm run build
 ```
 
-### Planned npm usage
-
-Once this package is published to npm, the intended UX is:
-
 ```bash
-npm install -g binaclaw
-binaclaw chat
-```
-
-For now, run it from source:
-
-```bash
-node src/index.ts chat
+node dist/index.js chat
 ```
 
 ## Configure
 
-Start chat, then run:
+For the fastest first-time setup:
+
+```bash
+binaclaw onboard
+```
+
+`binaclaw onboard` will:
+
+- save your OpenAI and Telegram settings into `~/.binaclaw/config.json`
+- save Binance private keys into `~/.binaclaw/env.local` when you choose to provide them
+- keep Binance secrets env-only
+- start `gateway` in the background
+- start the Telegram provider in the background
+- print a success message when both are healthy
+
+If you prefer manual setup, start chat and run:
 
 ```text
 /config
@@ -91,11 +104,12 @@ Optional but useful:
 
 Configuration priority:
 
-1. environment variables for Binance secrets
-2. `config.json` for local app settings and non-Binance credentials
-3. code defaults
+1. shell environment variables
+2. `~/.binaclaw/env.local` for locally stored Binance secrets managed by `binaclaw onboard`
+3. `config.json` for local app settings and non-Binance credentials
+4. code defaults
 
-Binance secrets are env-only:
+Binance secrets are env-only from the runtime point of view, but `binaclaw onboard` can write them into a local machine-only env file:
 
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
@@ -108,10 +122,16 @@ Default config path:
 ~/.binaclaw/config.json
 ```
 
+Default local env path:
+
+```text
+~/.binaclaw/env.local
+```
+
 To keep all state inside the current project directory:
 
 ```bash
-BINACLAW_HOME="$PWD/.binaclaw" node src/index.ts chat
+BINACLAW_HOME="$PWD/.binaclaw" binaclaw chat
 ```
 
 Important config values:
@@ -155,21 +175,29 @@ Session tuning values:
 ### Interactive chat
 
 ```bash
-node src/index.ts chat
+binaclaw chat
 ```
+
+### One-shot onboarding
+
+```bash
+binaclaw onboard
+```
+
+After onboarding succeeds, you can chat with your bot directly in Telegram. You do not need to keep a terminal window open for `gateway` or `telegram`.
 
 ### Shared gateway mode
 
 Terminal 1:
 
 ```bash
-node src/index.ts gateway
+binaclaw gateway
 ```
 
 Terminal 2:
 
 ```bash
-BINACLAW_GATEWAY_URL="ws://127.0.0.1:8787" node src/index.ts chat
+BINACLAW_GATEWAY_URL="ws://127.0.0.1:8787" binaclaw chat
 ```
 
 This lets multiple terminal clients share the same persisted session store and runtime state.
@@ -179,7 +207,7 @@ This lets multiple terminal clients share the same persisted session store and r
 Terminal 1:
 
 ```bash
-node src/index.ts gateway
+binaclaw gateway
 ```
 
 Terminal 2:
@@ -187,7 +215,7 @@ Terminal 2:
 ```bash
 TELEGRAM_BOT_TOKEN="your-bot-token" \
 BINACLAW_GATEWAY_URL="ws://127.0.0.1:8787" \
-node src/index.ts telegram
+binaclaw telegram
 ```
 
 The Telegram provider is implemented with `grammY` and forwards incoming updates into the shared gateway runtime.
@@ -213,17 +241,18 @@ In this mode, Telegram messages are mapped to gateway-managed session keys:
 ### CLI commands
 
 ```bash
-node src/index.ts chat
-node src/index.ts config
-node src/index.ts session
-node src/index.ts session clear
-node src/index.ts session compact
-node src/index.ts skills list
-node src/index.ts skills add <source>
-node src/index.ts auth status
-node src/index.ts doctor
-node src/index.ts gateway
-node src/index.ts telegram
+binaclaw chat
+binaclaw onboard
+binaclaw config
+binaclaw session
+binaclaw session clear
+binaclaw session compact
+binaclaw skills list
+binaclaw skills add <source>
+binaclaw auth status
+binaclaw doctor
+binaclaw gateway
+binaclaw telegram
 ```
 
 ### In-chat commands

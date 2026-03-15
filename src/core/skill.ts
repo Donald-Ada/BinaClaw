@@ -855,15 +855,17 @@ function isSkillMarkdownPath(path: string): boolean {
 }
 
 export async function loadInstalledSkills(config: AppConfig): Promise<InstalledSkill[]> {
-  const skillFiles = [
-    ...(await enumerateMarkdownFiles(config.globalSkillsDir)),
-    ...(await enumerateMarkdownFiles(config.localSkillsDir)),
-  ].filter((path) => {
-    if (basename(path).toLowerCase() === "skill.md") {
-      return true;
-    }
-    return dirname(path) === config.globalSkillsDir || dirname(path) === config.localSkillsDir;
-  });
+  const sourceDirs = [config.bundledSkillsDir, config.globalSkillsDir, config.localSkillsDir];
+  const skillFiles = (
+    await Promise.all(sourceDirs.map(async (directory) => await enumerateMarkdownFiles(directory)))
+  )
+    .flat()
+    .filter((path) => {
+      if (basename(path).toLowerCase() === "skill.md") {
+        return true;
+      }
+      return sourceDirs.some((directory) => dirname(path) === directory);
+    });
   const uniqueByName = new Map<string, InstalledSkill>();
 
   for (const skillFile of skillFiles) {

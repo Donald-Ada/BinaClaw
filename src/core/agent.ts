@@ -1552,7 +1552,10 @@ function buildFastAnalysisCalls(
     );
   } else {
     maybeAdd(
-      (toolId) => toolId === "market.getDepth" || /depth|orderbook|book/i.test(toolId),
+      (toolId) =>
+        toolId === "market.getDepth" ||
+        /(^|[.])depth$/i.test(toolId) ||
+        /(^|[.])orderBook$/i.test(toolId),
       (tool) => withOptionalInputs(tool, { symbol, limit: 5 }),
     );
   }

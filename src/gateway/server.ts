@@ -2,6 +2,7 @@ import {createServer, type IncomingMessage, type Server, type ServerResponse} fr
 import {URL} from "node:url";
 import {WebSocketServer, WebSocket} from "ws";
 import {createAppConfig} from "../core/config.ts";
+import {markManagedServiceReady} from "../core/service-manager.ts";
 import type {AppConfig} from "../core/types.ts";
 import type {GatewayRequestEnvelope, GatewayResponseEnvelope} from "./protocol.ts";
 import {GatewayRuntime, type GatewayAgentFactory} from "./runtime.ts";
@@ -140,6 +141,7 @@ export class GatewayServer {
 export async function runGatewayServer(config = createAppConfig()): Promise<void> {
   const server = new GatewayServer(config);
   await server.listen();
+  await markManagedServiceReady("gateway", { ws: server.getWsOrigin() });
   console.log(`BinaClaw Gateway listening on ${server.getWsOrigin()}`);
 
   const close = async () => {

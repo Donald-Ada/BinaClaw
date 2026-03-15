@@ -2,6 +2,7 @@ import {access} from "node:fs/promises";
 import {constants} from "node:fs";
 import {createAppConfig, ensureAppDirectories} from "../core/config.ts";
 import {formatConfigSummary, runInteractiveConfigWizard} from "./config-wizard.ts";
+import {runOnboard} from "./onboard.ts";
 import {SessionManager} from "../core/session.ts";
 import {MemoryStore} from "../core/memory.ts";
 import {installSkillsFromSource, loadInstalledSkills, syncWorkspaceToolsIndex} from "../core/skill.ts";
@@ -62,6 +63,9 @@ export async function runCommand(argv: string[]): Promise<void> {
     case "config":
       await runInteractiveConfigWizard();
       return;
+    case "onboard":
+      await runOnboard();
+      return;
     case "session": {
       const sessionManager = new SessionManager(
         config.workspaceSessionsIndexFile,
@@ -102,9 +106,11 @@ export async function runCommand(argv: string[]): Promise<void> {
         `Node runtime: ${process.version}`,
         `App home: ${config.appHome}`,
         `Config file: ${config.configFile}`,
+        `Local env file: ${config.localEnvFile}`,
         `Gateway URL: ${config.gateway.url ?? "disabled"}`,
         `Gateway listen: ws://${config.gateway.host}:${config.gateway.port}`,
         `Telegram bot: ${config.telegram.botToken ? "configured" : "disabled"}`,
+        `Bundled skills dir: ${config.bundledSkillsDir}`,
         `Global skills dir: ${config.globalSkillsDir}`,
         `Local skills dir: ${config.localSkillsDir}`,
         `Loaded skills: ${skills.length}`,
@@ -144,6 +150,7 @@ export async function runCommand(argv: string[]): Promise<void> {
         "- binaclaw telegram",
         "- binaclaw chat",
         "- binaclaw config",
+        "- binaclaw onboard",
         "- binaclaw session",
         "- binaclaw session clear",
         "- binaclaw session compact",

@@ -460,7 +460,7 @@ function parseParameterHints(section: string): SkillParameterHint[] {
   const results: SkillParameterHint[] = [];
   for (const table of parseMarkdownTables(section)) {
     for (const row of table) {
-      const name = row.name ?? row.parameter ?? row.param ?? "";
+      const name = row.parameter ?? row.param ?? row.field ?? "";
       if (!name) {
         continue;
       }
@@ -490,6 +490,45 @@ function parseParameterHints(section: string): SkillParameterHint[] {
   return Array.from(new Map(results.map((item) => [item.name, item])).values());
 }
 
+function extractApiBlockParameterSection(block: string): string {
+  return block.split(/\n###\s+(?:Example Request|Example|Response)\b|\n\*\*Example\*\*|\n\*\*Response\*\*/i)[0] ?? block;
+}
+
+function parseApiBlockDefaultParams(block: string, method: string): Record<string, string | number | boolean> | undefined {
+  const normalizedBlock = block.replace(/[`]/g, "");
+
+  if (method === "POST") {
+    const jsonBodyMatch =
+      normalizedBlock.match(/-d\s+'([^']+)'/s) ??
+      normalizedBlock.match(/-d\s+"([^"]+)"/s);
+    if (jsonBodyMatch?.[1]) {
+      try {
+        const parsed = JSON.parse(jsonBodyMatch[1]);
+        return normalizeDefaultParams(parsed);
+      } catch {
+        // ignore and fall back to query parsing
+      }
+    }
+  }
+
+  const urlMatch = normalizedBlock.match(/https?:\/\/[^\s'"]+\?([^\s'"]+)/);
+  if (urlMatch?.[1]) {
+    const search = new URLSearchParams(urlMatch[1]);
+    const defaults: Record<string, string | number | boolean> = {};
+    for (const [key, value] of search.entries()) {
+      if (value === "true" || value === "false") {
+        defaults[key] = value === "true";
+        continue;
+      }
+      const numeric = Number(value);
+      defaults[key] = Number.isFinite(numeric) && value.trim() !== "" ? numeric : value;
+    }
+    return Object.keys(defaults).length > 0 ? defaults : undefined;
+  }
+
+  return undefined;
+}
+
 function collectAuthHints(sections: SkillSectionMap, body = ""): SkillAuthHints {
   const text = [
     body,
@@ -503,7 +542,7 @@ function collectAuthHints(sections: SkillSectionMap, body = ""): SkillAuthHints 
   const signatureAlgorithms = ["HMAC", "RSA", "Ed25519"].filter((item) =>
     text.toLowerCase().includes(item.toLowerCase()),
   );
-  const headerNames = ["X-MBX-APIKEY", "User-Agent", "X-Square-OpenAPI-Key", "Content-Type", "clienttype"].filter(
+  const headerNames = ["X-MBX-APIKEY", "User-Agent", "X-Square-OpenAPI-Key", "Content-Type", "clienttype", "Accept-Encoding"].filter(
     (item) => text.toLowerCase().includes(item.toLowerCase()),
   );
   const baseUrls = Array.from(new Set(text.match(/https?:\/\/[^\s)]+/g) ?? []));
@@ -516,6 +555,9 @@ function collectAuthHints(sections: SkillSectionMap, body = ""): SkillAuthHints 
   if (/content-type[\s\S]{0,120}application\/json/i.test(text)) {
     staticHeaders["Content-Type"] = "application/json";
   }
+  if (/accept-encoding[\s\S]{0,120}identity/i.test(text)) {
+    staticHeaders["Accept-Encoding"] = "identity";
+  }
   if (/clienttype[\s\S]{0,80}binanceskill/i.test(text)) {
     staticHeaders.clienttype = "binanceSkill";
   }
@@ -525,7 +567,7 @@ function collectAuthHints(sections: SkillSectionMap, body = ""): SkillAuthHints 
     requiresSecretKey: /secret(key)?/i.test(text),
     signatureAlgorithms,
     headerNames,
-    userAgent: text.match(/User-Agent[^`A-Za-z0-9-]*[`"]?([^`\n"]+)[`"]?/i)?.[1]?.trim(),
+    userAgent: text.match(/User-Agent[^`'\"A-Za-z0-9-]*[`'"]?([^`'"\n]+)[`'"]?/i)?.[1]?.trim(),
     apiKeyHeaderName,
     staticHeaders,
     baseUrls,
@@ -638,24 +680,24 @@ function parseApiBlocks(
   rootDir: string,
 ): SkillEndpointHint[] {
   const namespace = deriveSkillNamespace(manifest, rootDir);
-  const blocks = Array.from(
-    body.matchAll(
-      /^##+\s+(API(?:\s+Endpoint)?\b.+?)\n[\s\S]*?(?:\*\*Method\*\*:\s*(GET|POST|DELETE|PUT)|###\s*Method:\s*(GET|POST|DELETE|PUT)|Method:\s*(GET|POST|DELETE|PUT))[\s\S]*?(?:\*\*URL\*\*:\s*|###\s*URL:\s*|URL:\s*)(?:\s*\n```[\s\S]*?\n)?\s*(https?:\/\/[^\s`]+|\/[^\s`]+)(?:\s*\n```)?[\s\S]*?(?=^##+\s+|\Z)/gim,
-    ),
-  );
+  const blocks = splitApiBlocks(body);
 
   const endpoints: SkillEndpointHint[] = [];
   for (const block of blocks) {
-    const description = (block[1] ?? "").trim();
-    const method = String(block[2] ?? block[3] ?? block[4] ?? "").toUpperCase();
-    const rawUrl = String(block[5] ?? "").trim();
+    const description = block.title.trim();
+    const method = extractApiBlockMethod(block.content);
+    const rawUrl = extractApiBlockUrl(block.content);
     if (!description || !rawUrl || !/^(GET|POST|DELETE)$/.test(method)) {
       continue;
     }
     const url = rawUrl.replace(/[`]/g, "");
     const path = url.startsWith("http") ? new URL(url).pathname : url;
+    const blockText = block.content;
+    const blockParameterHints = parseParameterHints(extractApiBlockParameterSection(blockText));
+    const effectiveParameterHints = blockParameterHints.length > 0 ? blockParameterHints : parameterHints;
+    const defaultParams = parseApiBlockDefaultParams(blockText, method);
     const authRequired =
-      /apikey|secret|x-mbx-apikey|authentication requires/i.test(block[0] ?? "") ||
+      /apikey|secret|x-mbx-apikey|authentication requires/i.test(blockText) ||
       authHints.requiresApiKey;
     const transport = determineEndpointTransport(url, path, authRequired, authHints);
     endpoints.push({
@@ -665,8 +707,9 @@ function parseApiBlocks(
       method: method as SkillEndpointHint["method"],
       path,
       authRequired,
-      requiredParams: parameterHints.filter((item) => item.required).map((item) => item.name),
-      optionalParams: parameterHints.filter((item) => !item.required).map((item) => item.name),
+      requiredParams: effectiveParameterHints.filter((item) => item.required).map((item) => item.name),
+      optionalParams: effectiveParameterHints.filter((item) => !item.required).map((item) => item.name),
+      defaultParams,
       transport,
       userAgent: authHints.userAgent,
       apiKeyHeaderName: authHints.apiKeyHeaderName,
@@ -677,6 +720,41 @@ function parseApiBlocks(
   }
 
   return endpoints;
+}
+
+function splitApiBlocks(body: string): Array<{ title: string; content: string }> {
+  const lines = body.split(/\r?\n/);
+  const starts: number[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^##+\s+API(?:\s+Endpoint)?\b/i.test(lines[index] ?? "")) {
+      starts.push(index);
+    }
+  }
+
+  return starts.map((start, index) => {
+    const end = starts[index + 1] ?? lines.length;
+    const header = lines[start] ?? "";
+    return {
+      title: header.replace(/^##+\s+/, "").trim(),
+      content: lines.slice(start, end).join("\n"),
+    };
+  });
+}
+
+function extractApiBlockMethod(block: string): string {
+  const match =
+    block.match(/\*\*Method\*\*:\s*(GET|POST|DELETE|PUT)/i) ??
+    block.match(/^###\s*Method:\s*(GET|POST|DELETE|PUT)/im) ??
+    block.match(/^Method:\s*(GET|POST|DELETE|PUT)/im);
+  return String(match?.[1] ?? "").toUpperCase();
+}
+
+function extractApiBlockUrl(block: string): string {
+  const fenced =
+    block.match(/(?:\*\*URL\*\*:\s*|###\s*URL:\s*|^URL:\s*)(?:\s*\n```[\s\S]*?\n)?\s*(https?:\/\/[^\s`]+|\/[^\s`]+)(?:\s*\n```)?/im) ??
+    block.match(/(https?:\/\/[^\s`]+|\/[^\s`]+)/);
+  return String(fenced?.[1] ?? "").trim();
 }
 
 function normalizeApiBlockTitle(title: string, path: string): string {

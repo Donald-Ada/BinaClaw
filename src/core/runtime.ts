@@ -191,7 +191,10 @@ async function executeEndpointTransport(
   client: BinanceClient,
   fetchImpl: typeof fetch,
 ): Promise<unknown> {
-  const params = normalizeParams(input);
+  const params = {
+    ...(endpoint.defaultParams ?? {}),
+    ...normalizeParams(input),
+  };
   const baseUrl = resolveEndpointBaseUrl(skill, endpoint, config.binance.webBaseUrl);
   const headers = buildHeaders(skill, endpoint, config);
 
@@ -262,7 +265,7 @@ function buildHeaders(skill: InstalledSkill, endpoint: SkillEndpointHint, config
 async function executeGenericHttp(
   baseUrl: string,
   endpoint: SkillEndpointHint,
-  params: Record<string, string | number | undefined>,
+  params: Record<string, string | number | boolean | undefined>,
   headers: Record<string, string>,
   fetchImpl: typeof fetch,
 ): Promise<unknown> {
@@ -303,7 +306,7 @@ async function executeGenericHttp(
   return await response.json().catch(() => response.text());
 }
 
-function normalizeParams(input: Record<string, unknown>): Record<string, string | number | undefined> {
+function normalizeParams(input: Record<string, unknown>): Record<string, string | number | boolean | undefined> {
   return Object.fromEntries(
     Object.entries(input)
       .map(([key, value]) => {

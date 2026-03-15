@@ -229,7 +229,7 @@ test("compileSkillRuntime executes Binance Square posting endpoint with Square k
     [parsed],
     new Map(),
     config,
-    new BinanceClient(config.binance),
+    new BinanceClient(config.binance, fetchImpl),
     fetchImpl,
   );
   const endpoint = parsed.knowledge.endpointHints.find((item) => item.path === "/bapi/composite/v1/public/pgc/openApi/content/add");
@@ -266,7 +266,7 @@ test("compileSkillRuntime uses the Web3 origin for crypto market rank endpoints"
     [parsed],
     new Map(),
     config,
-    new BinanceClient(config.binance),
+    new BinanceClient(config.binance, fetchImpl),
     fetchImpl,
   );
   const endpoint = parsed.knowledge.endpointHints.find((item) => item.id === "rank.unifiedTokenRank");
@@ -278,4 +278,32 @@ test("compileSkillRuntime uses the Web3 origin for crypto market rank endpoints"
   assert.ok(requestedUrl.startsWith("https://web3.binance.com/"));
   assert.ok(requestedUrl.endsWith("/bapi/defi/v1/public/wallet-direct/buw/wallet/market/token/pulse/unified/rank/list"));
   assert.ok(requestedBody.includes("\"rankType\":10"));
+});
+
+test("compileSkillRuntime applies crypto market rank example defaults when the model omits params", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "binaclaw-rank-defaults-"));
+  const raw = await readFile(join(process.cwd(), "skills", "crypto-market-rank", "SKILL.md"), "utf8");
+  const parsed = (await parseSkillDocument(raw, join(process.cwd(), "skills", "crypto-market-rank", "SKILL.md"))).skill;
+  const config = createAppConfig({ BINACLAW_HOME: rootDir }, process.cwd());
+
+  let requestedUrl = "";
+  const fetchImpl = (async (input: RequestInfo | URL) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ code: "000000", data: { leaderBoardList: [] } }), { status: 200 });
+  }) as typeof fetch;
+
+  const runtime = await compileSkillRuntime(
+    [parsed],
+    new Map(),
+    config,
+    new BinanceClient(config.binance, fetchImpl),
+    fetchImpl,
+  );
+  const tool = runtime.toolRegistry.get("rank.socialHypeLeaderboard");
+  const result = await tool?.handler({}, { config, now: () => new Date() });
+
+  assert.equal(result?.ok, true);
+  assert.ok(requestedUrl.includes("chainId=56"));
+  assert.ok(requestedUrl.includes("targetLanguage=en"));
+  assert.ok(requestedUrl.includes("timeRange=1"));
 });

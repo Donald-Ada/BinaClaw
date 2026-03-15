@@ -20,7 +20,7 @@ export class BinanceClient {
     return Boolean(this.config.apiKey && this.config.apiSecret);
   }
 
-  buildSignedQuery(params: Record<string, string | number | undefined>, timestamp = Date.now()): string {
+  buildSignedQuery(params: Record<string, string | number | boolean | undefined>, timestamp = Date.now()): string {
     const searchParams = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== null && value !== "") {
@@ -47,7 +47,7 @@ export class BinanceClient {
     }
   }
 
-  async requestPublic(scope: RequestScope, path: string, params: Record<string, string | number | undefined> = {}): Promise<unknown> {
+  async requestPublic(scope: RequestScope, path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<unknown> {
     return this.requestAgainstBase({
       baseUrl: this.getBaseUrl(scope),
       method: "GET",
@@ -59,7 +59,7 @@ export class BinanceClient {
   async requestPublicAbsolute(
     baseUrl: string,
     path: string,
-    params: Record<string, string | number | undefined> = {},
+    params: Record<string, string | number | boolean | undefined> = {},
     headers: Record<string, string> = {},
     method: RequestMethod = "GET",
   ): Promise<unknown> {
@@ -76,7 +76,7 @@ export class BinanceClient {
     baseUrl: string,
     method: RequestMethod,
     path: string,
-    params: Record<string, string | number | undefined> = {},
+    params: Record<string, string | number | boolean | undefined> = {},
     headers: Record<string, string> = {},
   ): Promise<unknown> {
     if (!this.hasAuth()) {
@@ -98,7 +98,7 @@ export class BinanceClient {
     baseUrl: string;
     method: RequestMethod;
     path: string;
-    params?: Record<string, string | number | undefined>;
+    params?: Record<string, string | number | boolean | undefined>;
     headers?: Record<string, string>;
   }): Promise<unknown> {
     const searchParams = new URLSearchParams();
@@ -120,7 +120,7 @@ export class BinanceClient {
     scope: RequestScope,
     method: RequestMethod,
     path: string,
-    params: Record<string, string | number | undefined> = {},
+    params: Record<string, string | number | boolean | undefined> = {},
   ): Promise<unknown> {
     if (!this.hasAuth()) {
       throw new Error("缺少 BINANCE_API_KEY 或 BINANCE_API_SECRET，当前只能使用只读能力。");

@@ -220,6 +220,17 @@ test("parseSkillDocument keeps crypto market rank API block names readable and s
   assert.ok(!endpointIds.some((item) => item.includes("aPI2")));
   assert.ok(!endpointIds.some((item) => item.includes("exampleRequest")));
   assert.ok(!endpointIds.some((item) => item.includes("rankTypes")));
+
+  const social = parsed.knowledge.endpointHints.find((item) => item.id === "rank.socialHypeLeaderboard");
+  const unified = parsed.knowledge.endpointHints.find((item) => item.id === "rank.unifiedTokenRank");
+  assert.deepEqual(social?.requiredParams, ["chainId", "targetLanguage", "timeRange"]);
+  assert.equal(social?.defaultParams?.chainId, 56);
+  assert.equal(social?.defaultParams?.sentiment, "All");
+  assert.equal(social?.defaultParams?.targetLanguage, "en");
+  assert.equal(social?.defaultParams?.timeRange, 1);
+  assert.equal(unified?.defaultParams?.rankType, 10);
+  assert.equal(unified?.defaultParams?.page, 1);
+  assert.equal(unified?.defaultParams?.size, 20);
 });
 
 test("parseSkillDocument extracts structured Binance tool definitions from Available APIs", async () => {

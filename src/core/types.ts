@@ -214,6 +214,7 @@ export interface SkillEndpointHint {
   authRequired: boolean;
   requiredParams: string[];
   optionalParams: string[];
+  defaultParams?: Record<string, string | number | boolean>;
   transport: Exclude<SkillTransportKind, "builtin" | "memory">;
   userAgent?: string;
   apiKeyHeaderName?: string;

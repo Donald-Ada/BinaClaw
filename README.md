@@ -187,6 +187,12 @@ Terminal 1:
 binaclaw gateway
 ```
 
+停止后台 Gateway：
+
+```bash
+binaclaw gateway stop
+```
+
 Terminal 2:
 
 ```bash
@@ -209,6 +215,12 @@ Terminal 2:
 TELEGRAM_BOT_TOKEN="your-bot-token" \
 BINACLAW_GATEWAY_URL="ws://127.0.0.1:8787" \
 binaclaw telegram
+```
+
+停止后台 Telegram provider：
+
+```bash
+binaclaw telegram stop
 ```
 
 The Telegram provider is implemented with `grammY` and forwards incoming updates into the shared gateway runtime.

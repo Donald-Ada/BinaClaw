@@ -1,11 +1,11 @@
 {
   "name": "binaclaw",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A Binance-focused CLI AI agent inspired by Dexter and Binance Skills.",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "binaclaw": "./dist/index.js"
+    "binaclaw": "dist/index.js"
   },
   "exports": {
     ".": "./dist/index.js"

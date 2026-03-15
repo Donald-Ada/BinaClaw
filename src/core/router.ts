@@ -79,6 +79,11 @@ function extractSymbol(input: string): string | undefined {
     return normalizeSymbol(naturalAnalysis[1]);
   }
 
+  const sellAllContext = input.match(/(?:卖出?|sell)\s*(?:(?:全部|全仓|全卖|清仓)\s*|all(?:\s+of)?\s+)?([A-Za-z]{2,12})/i);
+  if (sellAllContext) {
+    return normalizeSymbol(sellAllContext[1]);
+  }
+
   const prefixContext = input.match(/(?:买|卖|分析|看看|看下|查询|查下|查查|下单|研究|关注|看|查|做多|做空)\s*([A-Za-z]{2,12})/i);
   if (prefixContext) {
     return normalizeSymbol(prefixContext[1]);
@@ -116,6 +121,10 @@ function extractQuoteOrderQty(input: string): number | undefined {
   return quoteAmount ? Number(quoteAmount[1]) : undefined;
 }
 
+function extractSellAll(input: string): boolean {
+  return /(?:卖出?|sell).*(?:全部|全仓|全卖|清仓|卖光|all(?:\s+of)?|entire|whole)/i.test(input);
+}
+
 function extractPrice(input: string): number | undefined {
   const match = input.match(/(?:价格|price|at)\s*([0-9]+(?:\.[0-9]+)?)/i);
   return match ? Number(match[1]) : undefined;
@@ -131,6 +140,7 @@ export function inferIntent(input: string): IntentAnalysis {
   const symbol = extractSymbol(input);
   const quantity = extractQuantity(input);
   const quoteOrderQty = extractQuoteOrderQty(input);
+  const sellAll = extractSellAll(input);
   const price = extractPrice(input);
   const orderId = extractOrderId(input);
 
@@ -174,6 +184,7 @@ export function inferIntent(input: string): IntentAnalysis {
     symbol,
     quantity,
     quoteOrderQty,
+    sellAll,
     price,
     side,
     marketType,

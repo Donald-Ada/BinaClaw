@@ -422,7 +422,11 @@ function createTestRegistry(): Map<string, ToolDefinition> {
       outputSchema: { type: "object" },
       dangerous: false,
       authScope: "spot",
-      handler: async () => ({ ok: true, toolId: "spot.getAccount", data: { balances: [{ asset: "USDT", free: "1000" }] } }),
+      handler: async () => ({
+        ok: true,
+        toolId: "spot.getAccount",
+        data: { balances: [{ asset: "USDT", free: "1000" }, { asset: "BTC", free: "0.00027972" }] },
+      }),
     },
     {
       id: "spot.placeOrder",
@@ -482,6 +486,27 @@ test("agent creates approval flow for spot market buys with quoteOrderQty", asyn
   const confirmed = await agent.handleInput("确认下单");
   assert.ok(confirmed.text.includes("spot.placeOrder"));
   assert.equal(confirmed.toolResults[0]?.ok, true);
+});
+
+test("agent creates approval flow for sell-all spot requests using available balance", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
+  await mkdir(join(home, "skills"), { recursive: true });
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  await ensureAppDirectories(config);
+
+  const agent = new BinaClawAgent(config, {
+    provider: new FakeProvider(),
+    skills: stubSkills,
+    toolRegistry: createTestRegistry(),
+  });
+
+  const result = await agent.handleInput("卖出全部 BTC 为 USDT，按市价");
+  assert.equal(result.toolResults.some((item) => item.toolId === "spot.getAccount"), true);
+  assert.equal(result.approval?.toolId, "spot.placeOrder");
+  assert.equal(result.approval?.toolCall.input.symbol, "BTCUSDT");
+  assert.equal(result.approval?.toolCall.input.side, "SELL");
+  assert.equal(result.approval?.toolCall.input.type, "MARKET");
+  assert.equal(result.approval?.toolCall.input.quantity, 0.00027972);
 });
 
 test("agent summarizes analysis requests", async () => {

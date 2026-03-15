@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import {mkdtemp, readFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
 import {createAppConfig} from "../src/core/config.ts";
-import {getLocalGatewayUrl, getManagedServicePaths, markManagedServiceReady} from "../src/core/service-manager.ts";
+import {getLocalGatewayUrl, getManagedServicePaths, markManagedServiceReady, stopManagedService} from "../src/core/service-manager.ts";
 
 test("getManagedServicePaths resolves pid, ready, and log files under app home", async () => {
   const home = await mkdtemp(join(tmpdir(), "binaclaw-services-"));
@@ -50,4 +50,19 @@ test("markManagedServiceReady writes readiness metadata when requested", async (
       process.env.BINACLAW_SERVICE_READY_FILE = previous;
     }
   }
+});
+
+test("stopManagedService clears stale runtime files when no process is running", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-services-"));
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  const paths = getManagedServicePaths(config, "gateway");
+
+  await mkdir(config.runtimeDir, { recursive: true });
+  await writeFile(paths.pidFile, "999999\n", "utf8");
+  await writeFile(paths.readyFile, "{\"name\":\"gateway\"}\n", "utf8");
+
+  const stopped = await stopManagedService(config, "gateway");
+  assert.equal(stopped, true);
+  await assert.rejects(() => readFile(paths.pidFile, "utf8"));
+  await assert.rejects(() => readFile(paths.readyFile, "utf8"));
 });

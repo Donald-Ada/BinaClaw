@@ -494,6 +494,24 @@ export class BinaClawAgent {
         );
       }
 
+      const synthesizedDangerousCall = synthesizeDangerousTradeCallFromObservations(
+        resolvedPlan.intent,
+        toolResults,
+        compiledRuntime.toolRegistry,
+      );
+      if (synthesizedDangerousCall) {
+        const approval = createApprovalRequest(synthesizedDangerousCall, toolResults);
+        const seed = createApprovalRequiredSeed(approval);
+        const text = await this.composeDirectResponse(
+          seed.draft,
+          rawInput,
+          heuristicPlan.intent,
+          "approval",
+          seed.brief,
+        );
+        return { text, toolResults, approval };
+      }
+
       if (!shouldAllowFollowupPlanning(planningInput, heuristicPlan)) {
         break;
       }
@@ -658,6 +676,24 @@ export class BinaClawAgent {
 
     if (dangerousCalls.length > 0) {
       const approval = createApprovalRequest(dangerousCalls[0], toolResults);
+      const seed = createApprovalRequiredSeed(approval);
+      const text = await this.composeDirectResponse(
+        seed.draft,
+        input,
+        heuristicPlan.intent,
+        "approval",
+        seed.brief,
+      );
+      return { text, toolResults, approval };
+    }
+
+    const synthesizedDangerousCall = synthesizeDangerousTradeCallFromObservations(
+      heuristicPlan.intent,
+      toolResults,
+      compiledRuntime.toolRegistry,
+    );
+    if (synthesizedDangerousCall) {
+      const approval = createApprovalRequest(synthesizedDangerousCall, toolResults);
       const seed = createApprovalRequiredSeed(approval);
       const text = await this.composeDirectResponse(
         seed.draft,
@@ -1504,6 +1540,106 @@ function shouldAllowFollowupPlanning(
   }
 
   return false;
+}
+
+function synthesizeDangerousTradeCallFromObservations(
+  intent: ReturnType<typeof createPlan>["intent"],
+  toolResults: ToolResult[],
+  runtimeRegistry: Map<string, ToolDefinition>,
+): ToolCall | null {
+  if (
+    intent.marketType !== "spot"
+    || intent.side !== "SELL"
+    || !intent.symbol
+    || !intent.sellAll
+    || !runtimeRegistry.has("spot.placeOrder")
+  ) {
+    return null;
+  }
+
+  const quantity = extractSpotSellAllQuantity(intent.symbol, toolResults);
+  if (!quantity || quantity <= 0) {
+    return null;
+  }
+
+  return {
+    toolId: "spot.placeOrder",
+    input: {
+      symbol: intent.symbol,
+      side: "SELL",
+      type: intent.orderType ?? "MARKET",
+      quantity,
+      price: intent.price,
+    },
+    dangerous: true,
+  };
+}
+
+function extractSpotSellAllQuantity(symbol: string, toolResults: ToolResult[]): number | undefined {
+  const asset = getBaseAssetFromSymbol(symbol);
+  if (!asset) {
+    return undefined;
+  }
+
+  for (const result of toolResults) {
+    if (!result.ok) {
+      continue;
+    }
+
+    if (result.toolId === "spot.getAccount") {
+      const quantity = extractAssetFreeBalanceFromSpotAccount(result.data, asset);
+      if (quantity && quantity > 0) {
+        return quantity;
+      }
+    }
+
+    if (result.toolId === "assets.userAsset") {
+      const quantity = extractAssetFreeBalanceFromUserAsset(result.data, asset);
+      if (quantity && quantity > 0) {
+        return quantity;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function extractAssetFreeBalanceFromSpotAccount(data: unknown, asset: string): number | undefined {
+  if (!data || typeof data !== "object" || !("balances" in data) || !Array.isArray((data as {balances?: unknown}).balances)) {
+    return undefined;
+  }
+
+  const entry = ((data as { balances: Array<Record<string, unknown>> }).balances).find(
+    (item) => String(item.asset ?? "").toUpperCase() === asset,
+  );
+  const free = entry?.free;
+  return free !== undefined ? Number(free) : undefined;
+}
+
+function extractAssetFreeBalanceFromUserAsset(data: unknown, asset: string): number | undefined {
+  if (!Array.isArray(data)) {
+    return undefined;
+  }
+
+  const entry = data.find(
+    (item) =>
+      item
+      && typeof item === "object"
+      && String((item as Record<string, unknown>).asset ?? "").toUpperCase() === asset,
+  ) as Record<string, unknown> | undefined;
+  const free = entry?.free;
+  return free !== undefined ? Number(free) : undefined;
+}
+
+function getBaseAssetFromSymbol(symbol: string): string | undefined {
+  const quoteAssets = ["USDT", "BUSD", "FDUSD", "USDC", "BTC", "ETH", "BNB"];
+  const upper = symbol.toUpperCase();
+  for (const quoteAsset of quoteAssets) {
+    if (upper.endsWith(quoteAsset) && upper.length > quoteAsset.length) {
+      return upper.slice(0, -quoteAsset.length);
+    }
+  }
+  return undefined;
 }
 
 function buildFastAnalysisCalls(

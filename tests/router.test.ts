@@ -116,6 +116,14 @@ test("inferIntent does not hallucinate a symbol for generic market prompts", () 
   assert.ok(intent.categories.includes("market"));
 });
 
+test("inferIntent detects sell-all spot phrasing", () => {
+  const intent = inferIntent("卖出全部 BTC 为 USDT，按市价");
+  assert.equal(intent.symbol, "BTCUSDT");
+  assert.equal(intent.side, "SELL");
+  assert.equal(intent.sellAll, true);
+  assert.ok(intent.categories.includes("trade"));
+});
+
 test("selectSkills enables market, account and news for analysis", () => {
   const selected = selectSkills("给我分析 BTC 现在能不能买", skills);
   const names = selected.map((skill) => skill.manifest.name);

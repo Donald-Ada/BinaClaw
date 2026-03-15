@@ -6,6 +6,7 @@ import {runOnboard} from "./onboard.ts";
 import {SessionManager} from "../core/session.ts";
 import {MemoryStore} from "../core/memory.ts";
 import {installSkillsFromSource, loadInstalledSkills, syncWorkspaceToolsIndex} from "../core/skill.ts";
+import {stopManagedService} from "../core/service-manager.ts";
 import {formatSessionView} from "./session.ts";
 import {formatSkillsTable} from "./ui.ts";
 import {ensureWorkspaceBootstrapFiles, getWorkspaceDocumentPaths} from "../core/workspace.ts";
@@ -18,8 +19,31 @@ export async function runCommand(argv: string[]): Promise<void> {
 
   switch (command) {
     case "gateway":
+      if (subcommand === "stop") {
+        const telegramStopped = await stopManagedService(config, "telegram");
+        const gatewayStopped = await stopManagedService(config, "gateway");
+        if (gatewayStopped && telegramStopped) {
+          console.log("后台 Gateway 和 Telegram provider 已停止。");
+          return;
+        }
+        if (gatewayStopped) {
+          console.log("后台 Gateway 已停止。");
+          return;
+        }
+        if (telegramStopped) {
+          console.log("Gateway 未在运行，已顺带停止 Telegram provider。");
+          return;
+        }
+        console.log("后台 Gateway 未在运行。");
+        return;
+      }
       return (await import("../gateway/server.ts")).runGatewayServer(config);
     case "telegram":
+      if (subcommand === "stop") {
+        const stopped = await stopManagedService(config, "telegram");
+        console.log(stopped ? "后台 Telegram provider 已停止。" : "后台 Telegram provider 未在运行。");
+        return;
+      }
       return (await import("../gateway/providers/telegram.ts")).runTelegramProvider(config);
     case "chat":
       return (await import("./chat.ts")).runChat();
@@ -127,7 +151,9 @@ export async function runCommand(argv: string[]): Promise<void> {
         "BinaClaw CLI",
         "用法:",
         "- binaclaw gateway",
+        "- binaclaw gateway stop",
         "- binaclaw telegram",
+        "- binaclaw telegram stop",
         "- binaclaw chat",
         "- binaclaw config",
         "- binaclaw onboard",

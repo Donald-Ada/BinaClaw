@@ -441,6 +441,7 @@ export interface IntentAnalysis {
   symbol?: string;
   quantity?: number;
   quoteOrderQty?: number;
+  sellAll?: boolean;
   price?: number;
   side?: "BUY" | "SELL";
   marketType?: "spot" | "futures";

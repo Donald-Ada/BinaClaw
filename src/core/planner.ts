@@ -112,6 +112,26 @@ export function createPlan(context: PlannerContext): PlanResult {
         && intent.side === "BUY"
         && intent.quoteOrderQty,
     );
+    const canResolveSpotSellAll = Boolean(
+      intent.marketType === "spot"
+        && intent.orderType === "MARKET"
+        && intent.side === "SELL"
+        && intent.symbol
+        && intent.sellAll,
+    );
+
+    if (canResolveSpotSellAll) {
+      toolCalls.push({
+        toolId: "spot.getAccount",
+        input: {},
+        dangerous: false,
+      });
+      return {
+        skills: activeSkills,
+        toolCalls,
+        intent,
+      };
+    }
 
     if (!intent.symbol || !intent.side || (!intent.quantity && !canUseSpotQuoteOrderQty)) {
       if (intent.symbol && isAdvisoryTradePrompt(context.input)) {

@@ -40,6 +40,14 @@ export function getLocalGatewayUrl(config: AppConfig): string {
   return `ws://${host}:${config.gateway.port}`;
 }
 
+export function buildManagedServiceSpawnArgs(
+  entryScript: string,
+  name: ManagedServiceName,
+  execArgv: string[] = process.execArgv,
+): string[] {
+  return [...execArgv, entryScript, name];
+}
+
 export async function markManagedServiceReady(name: ManagedServiceName, details?: Record<string, unknown>): Promise<void> {
   const readyFile = process.env[SERVICE_READY_ENV];
   if (!readyFile) {
@@ -87,7 +95,7 @@ export async function startManagedService(
   await cleanupManagedServiceFiles(paths);
 
   const logFd = openSync(paths.logFile, "a");
-  const child = spawn(process.execPath, [entryScript, name], {
+  const child = spawn(process.execPath, buildManagedServiceSpawnArgs(entryScript, name), {
     cwd: config.cwd,
     detached: true,
     stdio: ["ignore", logFd, logFd],

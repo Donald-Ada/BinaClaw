@@ -13,6 +13,13 @@ const DESK_TIPS = [
   "想刷新 skills，直接输入 /skills",
   "Binance 密钥仅从本机环境变量读取，更安全",
 ];
+const ONBOARD_TIPS = [
+  "OpenAI 与 Telegram 建议先填真实生产值，避免首启后再返工",
+  "Telegram Allowed User IDs 可以填写多个，使用英文逗号分隔",
+  "Binance Key 只会写入本机 env.local，不会进入 config.json",
+  "Gateway Port 一般保持默认即可，只有端口冲突时再改",
+  "Brave Search Key 可选，但配置后热点检索和 Web3 搜索更完整",
+];
 
 export interface SpinnerController {
   update(message: string): void;
@@ -172,6 +179,88 @@ export function formatInfoBlock(title: string, text: string, variant: PanelVaria
   return `${renderPanel(title, text, variant)}\n`;
 }
 
+export function formatOnboardingWelcome(config: AppConfig): string {
+  const lines = [
+    "把本地交易台、模型、Telegram Bot 和 Binance 本机密钥一次配好。",
+    "",
+    ...formatKeyValueRows(
+      [
+        ["FLOW", "Gateway -> OpenAI -> Telegram -> Brave -> Binance Secrets"],
+        ["CONFIG", cropMiddle(config.configFile, getPanelContentWidth() - 10)],
+        ["LOCAL ENV", cropMiddle(config.localEnvFile, getPanelContentWidth() - 10)],
+      ],
+      10,
+    ),
+    "",
+    `TIP         ${pickRandomTip(ONBOARD_TIPS)}`,
+  ];
+  return `${renderPanel("BinaClaw: First Run", lines, "brand")}\n`;
+}
+
+export function formatOnboardingSection(
+  step: number,
+  total: number,
+  title: string,
+  description: string,
+  fieldLabels: string[],
+): string {
+  const lines = [
+    description,
+    "",
+    `STEP        ${step}/${total}`,
+    `FIELDS      ${fieldLabels.join(" · ")}`,
+    "INPUT       留空保持当前值，输入 - 清空可选配置",
+  ];
+  return `${renderPanel(`Onboard ${step}/${total}: ${title}`, lines, "info")}\n`;
+}
+
+export function formatOnboardingSavedSummary(config: AppConfig): string {
+  const lines = [
+    ...formatKeyValueRows(
+      [
+        ["GATEWAY", config.gateway.url ?? `ws://127.0.0.1:${config.gateway.port}`],
+        ["OPENAI", config.provider.apiKey ? `${config.provider.model ?? "configured"} · ready` : "missing"],
+        ["TELEGRAM", config.telegram.botToken ? "configured" : "missing"],
+        ["BRAVE", config.brave.apiKey ? "configured" : "optional / missing"],
+        ["BINANCE", config.binance.apiKey && config.binance.apiSecret ? "stored in local env" : "missing"],
+      ],
+      12,
+    ),
+    "",
+    `CONFIG      ${cropMiddle(config.configFile, getPanelContentWidth() - 12)}`,
+    `LOCAL ENV   ${cropMiddle(config.localEnvFile, getPanelContentWidth() - 12)}`,
+  ];
+  return `${renderPanel("Onboard Snapshot", lines, "success")}\n`;
+}
+
+export function formatOnboardingServiceCard(
+  title: string,
+  lines: string[],
+  variant: Extract<PanelVariant, "success" | "warning" | "info"> = "success",
+): string {
+  return `${renderPanel(title, lines, variant)}\n`;
+}
+
+export function formatOnboardingCompletion(config: AppConfig, gatewayLogFile: string, telegramLogFile: string): string {
+  const gatewayUrl = config.gateway.url ?? `ws://127.0.0.1:${config.gateway.port}`;
+  const lines = [
+    "配置已完成，后台 Gateway 与 Telegram provider 已准备就绪。",
+    "",
+    ...formatKeyValueRows(
+      [
+        ["GATEWAY", gatewayUrl],
+        ["TELEGRAM", "bot online"],
+        ["LOGS", cropMiddle(`${gatewayLogFile} | ${telegramLogFile}`, getPanelContentWidth() - 8)],
+        ["STOP", "binaclaw gateway stop"],
+      ],
+      10,
+    ),
+    "",
+    "NEXT        现在你可以直接在 Telegram 中与 AI Agent 对话",
+  ];
+  return `${renderPanel("Desk Online", lines, "success")}\n`;
+}
+
 export function formatSkillsTable(skills: InstalledSkill[]): string {
   const summaryLine = `loaded ${skills.length} skills · workspace ${skills.some((skill) => skill.sourcePath.includes("/skills/")) ? "active" : "idle"}`;
   const rows = skills
@@ -219,9 +308,9 @@ export function renderPanel(
   title: string,
   content: string | string[],
   variant: PanelVariant = "info",
-  options: { preserveWhitespace?: boolean } = {},
+  options: { preserveWhitespace?: boolean; useColor?: boolean } = {},
 ): string {
-  const theme = createCliTheme();
+  const theme = createCliTheme(options.useColor ?? shouldUseColor());
   const bodyLines = normalizePanelLines(content, getPanelContentWidth(), options.preserveWhitespace ?? variant === "json");
 
   if (!theme.useColor) {
@@ -532,11 +621,15 @@ export function shouldUseColor(): boolean {
 
 function renderDeskTip(): string {
   const theme = createCliTheme();
-  const tip = DESK_TIPS[Math.floor(Math.random() * DESK_TIPS.length)] ?? DESK_TIPS[0];
+  const tip = pickRandomTip(DESK_TIPS);
   if (!theme.useColor) {
     return `tip: ${tip}`;
   }
   return `${theme.muted}tip:${theme.reset} ${theme.text}${tip}${theme.reset}`;
+}
+
+function pickRandomTip(tips: string[]): string {
+  return tips[Math.floor(Math.random() * tips.length)] ?? tips[0] ?? "";
 }
 
 function getVariantColors(variant: PanelVariant, theme: CliTheme): { titleColor: string; borderColor: string } {
@@ -610,12 +703,14 @@ function wrapLine(line: string, width: number, preserveWhitespace: boolean): str
   let remaining = line;
 
   while (visibleLength(remaining) > width) {
-    const candidate = remaining.slice(0, width);
-    const splitAt = preserveWhitespace ? width : findWrapPoint(candidate, width);
-    chunks.push(remaining.slice(0, splitAt).trimEnd());
+    const candidate = takeByDisplayWidth(remaining, width);
+    const chunk = preserveWhitespace
+      ? takeByDisplayWidth(remaining, width)
+      : remaining.slice(0, findWrapPoint(candidate, width));
+    chunks.push(chunk.trimEnd());
     remaining = preserveWhitespace
-      ? remaining.slice(splitAt)
-      : remaining.slice(splitAt).trimStart();
+      ? remaining.slice(chunk.length)
+      : remaining.slice(chunk.length).trimStart();
   }
 
   if (remaining) {
@@ -650,11 +745,11 @@ function cropMiddle(value: string, maxLength: number): string {
     return value;
   }
   if (maxLength <= 7) {
-    return `${value.slice(0, Math.max(maxLength - 1, 1))}…`;
+    return `${takeByDisplayWidth(value, Math.max(maxLength - 1, 1))}…`;
   }
   const lead = Math.ceil((maxLength - 1) / 2);
   const tail = Math.floor((maxLength - 1) / 2);
-  return `${value.slice(0, lead)}…${value.slice(-tail)}`;
+  return `${takeByDisplayWidth(value, lead)}…${takeRightByDisplayWidth(value, tail)}`;
 }
 
 function getPanelWidth(): number {
@@ -712,10 +807,90 @@ function stripAnsi(value: string): string {
 }
 
 function visibleLength(value: string): number {
-  return Array.from(stripAnsi(value)).length;
+  let width = 0;
+  for (const character of stripAnsi(value)) {
+    width += getCharacterDisplayWidth(character);
+  }
+  return width;
 }
 
 function padVisible(value: string, width: number): string {
   const visible = visibleLength(value);
   return value + " ".repeat(Math.max(width - visible, 0));
+}
+
+function takeByDisplayWidth(value: string, width: number): string {
+  if (width <= 0) {
+    return "";
+  }
+
+  let consumed = 0;
+  let result = "";
+  for (const character of value) {
+    const nextWidth = getCharacterDisplayWidth(character);
+    if (consumed + nextWidth > width) {
+      break;
+    }
+    result += character;
+    consumed += nextWidth;
+  }
+  return result;
+}
+
+function takeRightByDisplayWidth(value: string, width: number): string {
+  if (width <= 0) {
+    return "";
+  }
+
+  const characters = Array.from(value);
+  let consumed = 0;
+  let result = "";
+  for (let index = characters.length - 1; index >= 0; index -= 1) {
+    const character = characters[index] ?? "";
+    const nextWidth = getCharacterDisplayWidth(character);
+    if (consumed + nextWidth > width) {
+      break;
+    }
+    result = `${character}${result}`;
+    consumed += nextWidth;
+  }
+  return result;
+}
+
+function getCharacterDisplayWidth(character: string): number {
+  const codePoint = character.codePointAt(0);
+  if (!codePoint) {
+    return 0;
+  }
+
+  if (
+    codePoint <= 0x1f ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    (codePoint >= 0x300 && codePoint <= 0x36f)
+  ) {
+    return 0;
+  }
+
+  if (
+    codePoint >= 0x1100 &&
+    (
+      codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1f64f) ||
+      (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+    )
+  ) {
+    return 2;
+  }
+
+  return 1;
 }

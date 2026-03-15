@@ -1,6 +1,6 @@
 {
   "name": "binaclaw",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "A Binance-focused CLI AI agent inspired by Dexter and Binance Skills.",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,21 +16,24 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
-    "build": "tsup src/index.ts --format esm --platform node --target node20 --out-dir dist --clean --splitting --sourcemap",
+    "build": "tsup src/index.ts --format esm --platform node --target node22 --out-dir dist --clean --splitting --sourcemap",
     "chat": "node dist/index.js chat",
-    "dev:chat": "node src/index.ts chat",
-    "test": "node --test tests/*.test.ts",
+    "dev:chat": "node --experimental-strip-types src/index.ts chat",
+    "dev:onboard": "node --experimental-strip-types src/index.ts onboard",
+    "dev:gateway": "node --experimental-strip-types src/index.ts gateway",
+    "dev:telegram": "node --experimental-strip-types src/index.ts telegram",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && npm run build && node dist/index.js doctor",
     "pack:check": "npm pack --dry-run",
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^22.19.15",
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"

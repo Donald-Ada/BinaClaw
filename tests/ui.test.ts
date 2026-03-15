@@ -7,7 +7,12 @@ import {
   formatAgentBlock,
   formatApprovalCard,
   formatInfoBlock,
+  formatOnboardingCompletion,
+  formatOnboardingSavedSummary,
+  formatOnboardingSection,
+  formatOnboardingWelcome,
   formatSkillsTable,
+  renderPanel,
   renderMarkdownForTerminal,
   renderStatusBar,
   renderWelcomeBanner,
@@ -43,6 +48,65 @@ test("renderWelcomeBanner shows trading-desk style header", () => {
   assert.ok(banner.includes("pulse"));
   assert.ok(banner.includes("BTC"));
   assert.ok(banner.includes("/Users/demo/workspace"));
+});
+
+test("onboarding panels show grouped first-run flow", () => {
+  const config = createAppConfig(
+    {
+      BINACLAW_HOME: "/tmp/binaclaw-onboard",
+      OPENAI_API_KEY: "demo-openai",
+      OPENAI_MODEL: "gpt-5.4",
+      TELEGRAM_BOT_TOKEN: "demo-telegram",
+      BRAVE_SEARCH_API_KEY: "demo-brave",
+      BINANCE_API_KEY: "demo-binance",
+      BINANCE_API_SECRET: "demo-binance-secret",
+      TELEGRAM_ALLOWED_USER_IDS: "123456",
+    },
+    "/Users/demo/workspace",
+  );
+
+  const welcome = formatOnboardingWelcome(config);
+  const section = formatOnboardingSection(
+    3,
+    5,
+    "Telegram",
+    "配置 Bot Token 和允许访问的 Telegram 用户 ID。",
+    ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS"],
+  );
+  const summary = formatOnboardingSavedSummary(config);
+  const complete = formatOnboardingCompletion(config, "/tmp/gateway.log", "/tmp/telegram.log");
+
+  assert.ok(welcome.includes("BinaClaw: First Run"));
+  assert.ok(welcome.includes("CONFIG"));
+  assert.ok(welcome.includes("LOCAL ENV"));
+  assert.ok(welcome.includes("TIP"));
+  assert.ok(section.includes("Onboard 3/5: Telegram"));
+  assert.ok(section.includes("TELEGRAM_BOT_TOKEN"));
+  assert.ok(section.includes("TELEGRAM_ALLOWED_USER_IDS"));
+  assert.ok(summary.includes("Onboard Snapshot"));
+  assert.ok(summary.includes("stored in local env"));
+  assert.ok(complete.includes("Desk Online"));
+  assert.ok(complete.includes("binaclaw gateway stop"));
+  assert.ok(complete.includes("Telegram"));
+});
+
+test("renderPanel keeps border width stable for CJK content", () => {
+  const panel = renderPanel(
+    "BinaClaw: First Run",
+    [
+      "把本地交易台、模型、Telegram Bot 和 Binance 本机密钥一次配好。",
+      "TIP         Gateway Port 一般保持默认即可，只有端口冲突时再改",
+    ],
+    "brand",
+    { useColor: true },
+  );
+
+  const widths = panel
+    .split("\n")
+    .map((line) => terminalWidth(stripAnsi(line)));
+
+  assert.ok(widths.length > 2);
+  assert.ok(widths.every((width) => width === widths[0]));
 });
 
 test("renderMarkdownForTerminal removes common markdown source markers", () => {
@@ -256,4 +320,51 @@ function createSkill(
     rootDir: `/tmp/${name}`,
     warnings: options.warnings ?? [],
   };
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+function terminalWidth(value: string): number {
+  let width = 0;
+  for (const character of value) {
+    width += characterWidth(character);
+  }
+  return width;
+}
+
+function characterWidth(character: string): number {
+  const codePoint = character.codePointAt(0);
+  if (!codePoint) {
+    return 0;
+  }
+  if (
+    codePoint <= 0x1f ||
+    (codePoint >= 0x7f && codePoint <= 0x9f) ||
+    (codePoint >= 0x300 && codePoint <= 0x36f)
+  ) {
+    return 0;
+  }
+  if (
+    codePoint >= 0x1100 &&
+    (
+      codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1f64f) ||
+      (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+    )
+  ) {
+    return 2;
+  }
+  return 1;
 }

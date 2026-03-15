@@ -2,36 +2,53 @@ import {ensureAppDirectories} from "../core/config.ts";
 import {getLocalGatewayUrl, startManagedService, stopManagedService} from "../core/service-manager.ts";
 import {runOnboardingWizard} from "./config-wizard.ts";
 import {ensureWorkspaceBootstrapFiles} from "../core/workspace.ts";
+import {createSpinnerController, formatOnboardingCompletion, formatOnboardingServiceCard} from "./ui.ts";
 
 export async function runOnboard(): Promise<void> {
   const config = await runOnboardingWizard();
   await ensureAppDirectories(config);
   await ensureWorkspaceBootstrapFiles(config);
+  const spinner = createSpinnerController((chunk) => process.stdout.write(chunk), Boolean(process.stdout.isTTY));
 
   const startedFresh: Array<"gateway" | "telegram"> = [];
 
   try {
+    spinner.update("正在清理旧的后台服务...");
     await stopManagedService(config, "telegram");
     await stopManagedService(config, "gateway");
 
-    console.log("正在启动后台 Gateway...");
+    spinner.update("正在启动后台 Gateway...");
     const gateway = await startManagedService(config, "gateway");
     startedFresh.push("gateway");
-    console.log(`已启动 Gateway，PID ${gateway.pid}`);
+    spinner.update("正在启动后台 Telegram provider...");
 
-    console.log("正在启动后台 Telegram provider...");
     const telegram = await startManagedService(config, "telegram");
     startedFresh.push("telegram");
-    console.log(`已启动 Telegram provider，PID ${telegram.pid}`);
+    spinner.stop();
 
-    console.log("");
-    console.log("配置完成。");
-    console.log(`Gateway: ${getLocalGatewayUrl(config)}`);
-    console.log(`Gateway log: ${gateway.logFile}`);
-    console.log(`Telegram log: ${telegram.logFile}`);
-    console.log(`Local env: ${config.localEnvFile}`);
-    console.log("现在你可以直接在 Telegram 中和你的 AI Agent 对话了。");
+    process.stdout.write(
+      formatOnboardingServiceCard(
+        "Gateway Online",
+        [
+          `STATUS      ${gateway.alreadyRunning ? "reused existing process" : `started fresh · pid ${gateway.pid}`}`,
+          `URL         ${getLocalGatewayUrl(config)}`,
+          `LOG         ${gateway.logFile}`,
+        ],
+      ),
+    );
+    process.stdout.write(
+      formatOnboardingServiceCard(
+        "Telegram Online",
+        [
+          `STATUS      ${telegram.alreadyRunning ? "reused existing process" : `started fresh · pid ${telegram.pid}`}`,
+          `ACCESS      allowed users ${config.telegram.allowedUserIds.join(", ") || "not set"}`,
+          `LOG         ${telegram.logFile}`,
+        ],
+      ),
+    );
+    process.stdout.write(formatOnboardingCompletion(config, gateway.logFile, telegram.logFile));
   } catch (error) {
+    spinner.stop();
     for (const serviceName of startedFresh.reverse()) {
       await stopManagedService(config, serviceName);
     }

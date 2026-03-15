@@ -2,6 +2,12 @@ import {createInterface, type Interface} from "node:readline/promises";
 import {stdin as input, stdout as output} from "node:process";
 import {createAppConfig, ensureAppDirectories, loadStoredConfig, saveLocalEnvFile, saveStoredConfig} from "../core/config.ts";
 import type {AppConfig, StoredAppConfig} from "../core/types.ts";
+import {
+  formatInfoBlock,
+  formatOnboardingSavedSummary,
+  formatOnboardingSection,
+  formatOnboardingWelcome,
+} from "./ui.ts";
 
 type PromptTextOptions = {
   sensitive?: boolean;
@@ -102,30 +108,81 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
   await ensureAppDirectories(config);
   const stored = loadStoredConfig(config.configFile);
 
-  output.write(
-    [
-      "欢迎使用 BinaClaw onboard。",
-      "这一步会配置首启需要的 API 与本地服务端口，并准备本地 Gateway 与 Telegram provider。",
-      "需要填写 Gateway 端口、OpenAI API Key、OpenAI 模型、Telegram Bot Token、允许访问的 Telegram 用户 ID、Brave Search Key，以及 Binance API Key / Secret。",
-      `配置文件位置: ${config.configFile}`,
-      `本机环境文件位置: ${config.localEnvFile}`,
-    ].join("\n") + "\n",
-  );
+  output.write(formatOnboardingWelcome(config));
 
+  output.write(
+    formatOnboardingSection(
+      1,
+      5,
+      "Gateway",
+      "设置本地共享运行时端口。大多数情况下保持默认值即可。",
+      ["BINACLAW_GATEWAY_PORT"],
+    ),
+  );
   const gatewayPort = await promptNumber(
     rl,
     "BINACLAW_GATEWAY_PORT",
     stored.gateway?.port ?? config.gateway.port,
   );
   const localGatewayUrl = `ws://127.0.0.1:${gatewayPort ?? config.gateway.port}`;
+
+  output.write(
+    formatOnboardingSection(
+      2,
+      5,
+      "OpenAI",
+      "配置主模型推理能力。这里走官方 OpenAI Responses API。",
+      ["OPENAI_API_KEY", "OPENAI_MODEL"],
+    ),
+  );
+  const openaiApiKey = await promptText(rl, "OPENAI_API_KEY", stored.provider?.apiKey, { sensitive: true, required: true });
+  const openaiModel = await promptText(rl, "OPENAI_MODEL", stored.provider?.model ?? "gpt-4o-mini", { required: true });
+
+  output.write(
+    formatOnboardingSection(
+      3,
+      5,
+      "Telegram",
+      "配置 Bot Token 和允许访问的 Telegram 用户 ID。多个用户请使用英文逗号分隔。",
+      ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS"],
+    ),
+  );
+  const telegramBotToken = await promptText(rl, "TELEGRAM_BOT_TOKEN", stored.telegram?.botToken, { sensitive: true, required: true });
+  const telegramAllowedUserIds = await promptCsv(
+    rl,
+    "TELEGRAM_ALLOWED_USER_IDS",
+    stored.telegram?.allowedUserIds ?? config.telegram.allowedUserIds,
+    { required: true },
+  );
+
+  output.write(
+    formatOnboardingSection(
+      4,
+      5,
+      "Brave Search",
+      "Brave Search 用于热点新闻和 Web3 检索。可以留空，后续再补。",
+      ["BRAVE_SEARCH_API_KEY"],
+    ),
+  );
+  const braveApiKey = await promptText(rl, "BRAVE_SEARCH_API_KEY", stored.brave?.apiKey, { sensitive: true });
+
+  output.write(
+    formatOnboardingSection(
+      5,
+      5,
+      "Binance Local Secrets",
+      "Binance 金融密钥只会写入本机 env.local，不会进入 config.json。",
+      ["BINANCE_API_KEY", "BINANCE_API_SECRET"],
+    ),
+  );
   const binanceApiKey = await promptText(rl, "BINANCE_API_KEY", config.binance.apiKey, { sensitive: true });
   const binanceApiSecret = await promptText(rl, "BINANCE_API_SECRET", config.binance.apiSecret, { sensitive: true });
 
   const nextConfig: StoredAppConfig = {
     provider: {
-      apiKey: await promptText(rl, "OPENAI_API_KEY", stored.provider?.apiKey, { sensitive: true, required: true }),
+      apiKey: openaiApiKey,
       baseUrl: stored.provider?.baseUrl ?? "https://api.openai.com/v1",
-      model: await promptText(rl, "OPENAI_MODEL", stored.provider?.model ?? "gpt-4o-mini", { required: true }),
+      model: openaiModel,
     },
     gateway: {
       host: "127.0.0.1",
@@ -133,19 +190,14 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
       url: localGatewayUrl,
     },
     telegram: {
-      botToken: await promptText(rl, "TELEGRAM_BOT_TOKEN", stored.telegram?.botToken, { sensitive: true, required: true }),
+      botToken: telegramBotToken,
       apiBaseUrl: stored.telegram?.apiBaseUrl ?? config.telegram.apiBaseUrl,
       pollingTimeoutSeconds: stored.telegram?.pollingTimeoutSeconds ?? config.telegram.pollingTimeoutSeconds,
-      allowedUserIds: await promptCsv(
-        rl,
-        "TELEGRAM_ALLOWED_USER_IDS",
-        stored.telegram?.allowedUserIds ?? config.telegram.allowedUserIds,
-        { required: true },
-      ),
+      allowedUserIds: telegramAllowedUserIds,
       allowedChatIds: stored.telegram?.allowedChatIds ?? config.telegram.allowedChatIds,
     },
     brave: {
-      apiKey: await promptText(rl, "BRAVE_SEARCH_API_KEY", stored.brave?.apiKey, { sensitive: true }),
+      apiKey: braveApiKey,
       baseUrl: stored.brave?.baseUrl ?? config.brave.baseUrl,
       defaultCountry: stored.brave?.defaultCountry ?? config.brave.defaultCountry,
       searchLanguage: stored.brave?.searchLanguage ?? config.brave.searchLanguage,
@@ -167,7 +219,8 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
     BINANCE_API_SECRET: binanceApiSecret,
   });
   const refreshed = createAppConfig();
-  output.write(`配置已保存。\n${formatConfigSummary(refreshed)}\n`);
+  output.write(formatInfoBlock("Onboard Save", "配置已保存，正在准备启动本地服务。", "success"));
+  output.write(formatOnboardingSavedSummary(refreshed));
 
   if (!existingRl) {
     rl.close();

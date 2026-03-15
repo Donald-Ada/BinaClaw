@@ -4,7 +4,13 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import test from "node:test";
 import {createAppConfig} from "../src/core/config.ts";
-import {getLocalGatewayUrl, getManagedServicePaths, markManagedServiceReady, stopManagedService} from "../src/core/service-manager.ts";
+import {
+  buildManagedServiceSpawnArgs,
+  getLocalGatewayUrl,
+  getManagedServicePaths,
+  markManagedServiceReady,
+  stopManagedService,
+} from "../src/core/service-manager.ts";
 
 test("getManagedServicePaths resolves pid, ready, and log files under app home", async () => {
   const home = await mkdtemp(join(tmpdir(), "binaclaw-services-"));
@@ -50,6 +56,11 @@ test("markManagedServiceReady writes readiness metadata when requested", async (
       process.env.BINACLAW_SERVICE_READY_FILE = previous;
     }
   }
+});
+
+test("buildManagedServiceSpawnArgs preserves current node execArgv for child services", () => {
+  const args = buildManagedServiceSpawnArgs("src/index.ts", "gateway", ["--experimental-strip-types"]);
+  assert.deepEqual(args, ["--experimental-strip-types", "src/index.ts", "gateway"]);
 });
 
 test("stopManagedService clears stale runtime files when no process is running", async () => {

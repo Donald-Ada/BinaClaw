@@ -182,6 +182,20 @@ alpha
   assert.ok(installed.some((skill) => skill.manifest.name === "alpha"));
 });
 
+test("parseSkillDocument keeps full official spot Quick Reference including /api/v3/order", async () => {
+  const raw = await readFile(join(process.cwd(), "skills", "spot", "SKILL.md"), "utf8");
+  const parsed = (await parseSkillDocument(raw, join(process.cwd(), "skills", "spot", "SKILL.md"))).skill;
+
+  assert.ok(parsed.knowledge.endpointHints.length > 20);
+  const placeOrder = parsed.knowledge.endpointHints.find(
+    (item) => item.path === "/api/v3/order" && item.method === "POST",
+  );
+  assert.ok(placeOrder);
+  assert.equal(placeOrder?.authRequired, true);
+  assert.equal(placeOrder?.dangerLevel, "mutating");
+  assert.ok(placeOrder?.optionalParams.includes("quoteOrderQty"));
+});
+
 test("parseSkillDocument extracts structured Binance tool definitions from Available APIs", async () => {
   const raw = `---
 name: "demo-skill"

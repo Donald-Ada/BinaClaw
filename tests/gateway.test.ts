@@ -63,9 +63,6 @@ test("GatewayRuntime handles health, session, and streaming chat requests", asyn
       session.updatedAt = new Date().toISOString();
       return session;
     },
-    async compactSessionNow() {
-      return session;
-    },
   };
 
   const runtime = new GatewayRuntime(config, async () => fakeAgent);

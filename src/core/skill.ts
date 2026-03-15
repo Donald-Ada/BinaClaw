@@ -155,9 +155,30 @@ function collectWarnings(body: string): string[] {
 }
 
 function extractSection(body: string, sectionName: string): string {
-  const escaped = sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = body.match(new RegExp(`^##\\s+${escaped}\\s*$\\r?\\n([\\s\\S]*?)(?=^##\\s+|\\Z)`, "m"));
-  return match?.[1]?.trim() ?? "";
+  const lines = body.split(/\r?\n/);
+  const header = `## ${sectionName}`.toLowerCase();
+  let startIndex = -1;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index]?.trim().toLowerCase() === header) {
+      startIndex = index + 1;
+      break;
+    }
+  }
+
+  if (startIndex === -1) {
+    return "";
+  }
+
+  let endIndex = lines.length;
+  for (let index = startIndex; index < lines.length; index += 1) {
+    if (/^##\s+/.test(lines[index] ?? "")) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  return lines.slice(startIndex, endIndex).join("\n").trim();
 }
 
 function collectSections(body: string): SkillSectionMap {
@@ -1199,24 +1220,55 @@ export function selectFallbackReferenceSnippets(
   const lowered = input.toLowerCase();
   const results: Array<{ skillName: string; relativePath: string }> = [];
 
+  const needsAuth = /(auth|sign|signature|apikey|secret|权限|签名|认证|主网|mainnet)/.test(lowered);
+  const needsSecurity = /(security|安全|风控|风险|approval|confirm|确认)/.test(lowered);
+  const needsParameters = /(参数|parameter|quoteorderqty|quantity|数量|price|价格|精度|最小|名义金额|过滤器|规则|市价|限价|下单|买入|卖出|order|trade|endpoint|api|接口)/.test(lowered);
+  const needsScripts = /(脚本|script|命令|command|运行|execute|exec|用法|usage)/.test(lowered);
+  const tradeLike = /(下单|交易|买|卖|撤单|transfer|划转|提现|order|trade|market|limit)/.test(lowered);
+
   for (const skill of skills) {
     const references = skill.knowledge.referenceFiles;
     if (references.length === 0) {
       continue;
     }
-    const authLike =
-      /(auth|sign|signature|apikey|secret|权限|签名|认证|主网|mainnet|下单|trade|order)/.test(lowered) ||
+
+    const authRef = references.find((item) => /(auth|sign)/i.test(item.relativePath));
+    const securityRef = references.find((item) => /(security|safe|risk|approval|confirm)/i.test(item.relativePath));
+    const parameterRef = references.find((item) => /(param|schema|field|precision|filter|rule|trading)/i.test(item.relativePath));
+    const scriptRef = references.find((item) => /(script|command|usage|run)/i.test(item.relativePath));
+
+    const requiresTradeSupport =
+      tradeLike &&
       skill.knowledge.endpointHints.some((item) => item.authRequired || item.dangerLevel === "mutating");
-    if (authLike) {
-      const authRef = references.find((item) => /auth/i.test(item.relativePath));
-      if (authRef) {
-        results.push({
-          skillName: skill.manifest.name,
-          relativePath: authRef.relativePath,
-        });
-      }
+
+    if ((needsAuth || requiresTradeSupport) && authRef) {
+      results.push({
+        skillName: skill.manifest.name,
+        relativePath: authRef.relativePath,
+      });
+    }
+
+    if ((needsParameters || requiresTradeSupport) && parameterRef) {
+      results.push({
+        skillName: skill.manifest.name,
+        relativePath: parameterRef.relativePath,
+      });
+    }
+
+    if ((needsSecurity || requiresTradeSupport) && securityRef) {
+      results.push({
+        skillName: skill.manifest.name,
+        relativePath: securityRef.relativePath,
+      });
+    }
+
+    if (needsScripts && scriptRef) {
+      results.push({
+        skillName: skill.manifest.name,
+        relativePath: scriptRef.relativePath,
+      });
     }
   }
 
-  return Array.from(new Map(results.map((item) => [`${item.skillName}:${item.relativePath}`, item])).values()).slice(0, 3);
+  return Array.from(new Map(results.map((item) => [`${item.skillName}:${item.relativePath}`, item])).values()).slice(0, 4);
 }

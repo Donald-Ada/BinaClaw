@@ -23,12 +23,6 @@ export function formatConfigSummary(config: AppConfig): string {
     `BINANCE_API_KEY: ${config.binance.apiKey ? "present (shell/local env)" : "missing"}`,
     `BINANCE_API_SECRET: ${config.binance.apiSecret ? "present (shell/local env)" : "missing"}`,
     `BINANCE_USE_TESTNET: ${config.binance.useTestnet ? "true" : "false"}`,
-    `SESSION_MESSAGE_LIMIT: ${config.session.messageCompactionLimit}`,
-    `SESSION_SCRATCHPAD_LIMIT: ${config.session.scratchpadCompactionLimit}`,
-    `SESSION_CHAR_LIMIT: ${config.session.charCompactionLimit}`,
-    `SESSION_RETAIN_MESSAGES: ${config.session.retainRecentMessages}`,
-    `SESSION_RETAIN_SCRATCHPAD: ${config.session.retainRecentScratchpad}`,
-    `SESSION_MAX_COMPACTIONS: ${config.session.maxCompactionRecords}`,
   ].join("\n");
 }
 
@@ -89,38 +83,6 @@ export async function runInteractiveConfigWizard(existingRl?: Interface): Promis
       sapiBaseUrl: await promptText(rl, "BINANCE_SAPI_BASE_URL", stored.binance?.sapiBaseUrl ?? config.binance.sapiBaseUrl),
       webBaseUrl: await promptText(rl, "BINANCE_WEB_BASE_URL", stored.binance?.webBaseUrl ?? config.binance.webBaseUrl),
     },
-    session: {
-      messageCompactionLimit: await promptNumber(
-        rl,
-        "SESSION_MESSAGE_LIMIT",
-        stored.session?.messageCompactionLimit ?? config.session.messageCompactionLimit,
-      ),
-      scratchpadCompactionLimit: await promptNumber(
-        rl,
-        "SESSION_SCRATCHPAD_LIMIT",
-        stored.session?.scratchpadCompactionLimit ?? config.session.scratchpadCompactionLimit,
-      ),
-      charCompactionLimit: await promptNumber(
-        rl,
-        "SESSION_CHAR_LIMIT",
-        stored.session?.charCompactionLimit ?? config.session.charCompactionLimit,
-      ),
-      retainRecentMessages: await promptNumber(
-        rl,
-        "SESSION_RETAIN_MESSAGES",
-        stored.session?.retainRecentMessages ?? config.session.retainRecentMessages,
-      ),
-      retainRecentScratchpad: await promptNumber(
-        rl,
-        "SESSION_RETAIN_SCRATCHPAD",
-        stored.session?.retainRecentScratchpad ?? config.session.retainRecentScratchpad,
-      ),
-      maxCompactionRecords: await promptNumber(
-        rl,
-        "SESSION_MAX_COMPACTIONS",
-        stored.session?.maxCompactionRecords ?? config.session.maxCompactionRecords,
-      ),
-    },
   };
 
   await saveStoredConfig(config.configFile, mergeStoredConfig(stored, nextConfig));
@@ -143,8 +105,8 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
   output.write(
     [
       "欢迎使用 BinaClaw onboard。",
-      "这一步会保存 OpenAI / Telegram / Brave 配置，并准备本地 Gateway 与 Telegram provider。",
-      "Binance 金融密钥不会写入 config.json，会单独写入本机环境文件，供本机后台服务安全读取。",
+      "这一步会配置首启需要的 API 与本地服务端口，并准备本地 Gateway 与 Telegram provider。",
+      "需要填写 Gateway 端口、OpenAI API Key、OpenAI 模型、Telegram Bot Token、允许访问的 Telegram 用户 ID、Brave Search Key，以及 Binance API Key / Secret。",
       `配置文件位置: ${config.configFile}`,
       `本机环境文件位置: ${config.localEnvFile}`,
     ].join("\n") + "\n",
@@ -162,7 +124,7 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
   const nextConfig: StoredAppConfig = {
     provider: {
       apiKey: await promptText(rl, "OPENAI_API_KEY", stored.provider?.apiKey, { sensitive: true, required: true }),
-      baseUrl: await promptText(rl, "OPENAI_BASE_URL", stored.provider?.baseUrl ?? "https://api.openai.com/v1"),
+      baseUrl: stored.provider?.baseUrl ?? "https://api.openai.com/v1",
       model: await promptText(rl, "OPENAI_MODEL", stored.provider?.model ?? "gpt-4o-mini", { required: true }),
     },
     gateway: {
@@ -172,29 +134,22 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
     },
     telegram: {
       botToken: await promptText(rl, "TELEGRAM_BOT_TOKEN", stored.telegram?.botToken, { sensitive: true, required: true }),
-      apiBaseUrl: await promptText(rl, "TELEGRAM_BOT_API_BASE_URL", stored.telegram?.apiBaseUrl ?? config.telegram.apiBaseUrl),
-      pollingTimeoutSeconds: await promptNumber(
-        rl,
-        "TELEGRAM_POLLING_TIMEOUT",
-        stored.telegram?.pollingTimeoutSeconds ?? config.telegram.pollingTimeoutSeconds,
-      ),
+      apiBaseUrl: stored.telegram?.apiBaseUrl ?? config.telegram.apiBaseUrl,
+      pollingTimeoutSeconds: stored.telegram?.pollingTimeoutSeconds ?? config.telegram.pollingTimeoutSeconds,
       allowedUserIds: await promptCsv(
         rl,
         "TELEGRAM_ALLOWED_USER_IDS",
         stored.telegram?.allowedUserIds ?? config.telegram.allowedUserIds,
+        { required: true },
       ),
-      allowedChatIds: await promptCsv(
-        rl,
-        "TELEGRAM_ALLOWED_CHAT_IDS",
-        stored.telegram?.allowedChatIds ?? config.telegram.allowedChatIds,
-      ),
+      allowedChatIds: stored.telegram?.allowedChatIds ?? config.telegram.allowedChatIds,
     },
     brave: {
       apiKey: await promptText(rl, "BRAVE_SEARCH_API_KEY", stored.brave?.apiKey, { sensitive: true }),
-      baseUrl: await promptText(rl, "BRAVE_SEARCH_BASE_URL", stored.brave?.baseUrl ?? config.brave.baseUrl),
-      defaultCountry: await promptText(rl, "BRAVE_SEARCH_COUNTRY", stored.brave?.defaultCountry ?? config.brave.defaultCountry),
-      searchLanguage: await promptText(rl, "BRAVE_SEARCH_LANG", stored.brave?.searchLanguage ?? config.brave.searchLanguage),
-      uiLanguage: await promptText(rl, "BRAVE_UI_LANG", stored.brave?.uiLanguage ?? config.brave.uiLanguage),
+      baseUrl: stored.brave?.baseUrl ?? config.brave.baseUrl,
+      defaultCountry: stored.brave?.defaultCountry ?? config.brave.defaultCountry,
+      searchLanguage: stored.brave?.searchLanguage ?? config.brave.searchLanguage,
+      uiLanguage: stored.brave?.uiLanguage ?? config.brave.uiLanguage,
     },
     binance: {
       useTestnet: stored.binance?.useTestnet ?? false,
@@ -203,14 +158,6 @@ export async function runOnboardingWizard(existingRl?: Interface): Promise<AppCo
       futuresBaseUrl: stored.binance?.futuresBaseUrl ?? config.binance.futuresBaseUrl,
       sapiBaseUrl: stored.binance?.sapiBaseUrl ?? config.binance.sapiBaseUrl,
       webBaseUrl: stored.binance?.webBaseUrl ?? config.binance.webBaseUrl,
-    },
-    session: stored.session ?? {
-      messageCompactionLimit: config.session.messageCompactionLimit,
-      scratchpadCompactionLimit: config.session.scratchpadCompactionLimit,
-      charCompactionLimit: config.session.charCompactionLimit,
-      retainRecentMessages: config.session.retainRecentMessages,
-      retainRecentScratchpad: config.session.retainRecentScratchpad,
-      maxCompactionRecords: config.session.maxCompactionRecords,
     },
   };
 
@@ -250,10 +197,6 @@ function mergeStoredConfig(current: StoredAppConfig, updates: StoredAppConfig): 
     binance: {
       ...current.binance,
       ...updates.binance,
-    },
-    session: {
-      ...current.session,
-      ...updates.session,
     },
   };
 }
@@ -313,19 +256,39 @@ async function promptNumber(rl: Interface, key: string, current: number): Promis
   }
 }
 
-async function promptCsv(rl: Interface, key: string, current: string[]): Promise<string[] | undefined> {
+async function promptCsv(
+  rl: Interface,
+  key: string,
+  current: string[],
+  options: { required?: boolean } = {},
+): Promise<string[] | undefined> {
   const currentLabel = current.length > 0 ? current.join(",") : "empty";
-  const answer = (await rl.question(`${key} [当前: ${currentLabel}] > `)).trim();
-  if (!answer) {
-    return current;
+  while (true) {
+    const answer = (await rl.question(`${key} [当前: ${currentLabel}] > `)).trim();
+    if (!answer) {
+      if (options.required && current.length === 0) {
+        output.write(`${key} 为必填项，请至少输入一个值。\n`);
+        continue;
+      }
+      return current;
+    }
+    if (answer === "-") {
+      if (options.required) {
+        output.write(`${key} 不能清空。\n`);
+        continue;
+      }
+      return [];
+    }
+    const values = answer
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (options.required && values.length === 0) {
+      output.write(`${key} 为必填项，请至少输入一个值。\n`);
+      continue;
+    }
+    return values;
   }
-  if (answer === "-") {
-    return [];
-  }
-  return answer
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function describeCurrentValue(current: string | undefined, sensitive: boolean): string {

@@ -18,30 +18,6 @@ export function createAppConfig(
   const localEnv = loadLocalEnvFile(localEnvFile);
   const useTestnet = readBoolean(env.BINANCE_USE_TESTNET, stored.binance?.useTestnet ?? false);
   const recvWindow = readNumber(env.BINANCE_RECV_WINDOW, stored.binance?.recvWindow ?? 5000);
-  const messageCompactionLimit = readNumber(
-    env.BINACLAW_SESSION_MESSAGE_LIMIT,
-    stored.session?.messageCompactionLimit ?? 18,
-  );
-  const scratchpadCompactionLimit = readNumber(
-    env.BINACLAW_SESSION_SCRATCHPAD_LIMIT,
-    stored.session?.scratchpadCompactionLimit ?? 28,
-  );
-  const charCompactionLimit = readNumber(
-    env.BINACLAW_SESSION_CHAR_LIMIT,
-    stored.session?.charCompactionLimit ?? 6000,
-  );
-  const retainRecentMessages = readNumber(
-    env.BINACLAW_SESSION_RETAIN_MESSAGES,
-    stored.session?.retainRecentMessages ?? 8,
-  );
-  const retainRecentScratchpad = readNumber(
-    env.BINACLAW_SESSION_RETAIN_SCRATCHPAD,
-    stored.session?.retainRecentScratchpad ?? 16,
-  );
-  const maxCompactionRecords = readNumber(
-    env.BINACLAW_SESSION_MAX_COMPACTIONS,
-    stored.session?.maxCompactionRecords ?? 12,
-  );
   const gatewayPort = readNumber(
     env.BINACLAW_GATEWAY_PORT,
     stored.gateway?.port ?? 8787,
@@ -76,14 +52,6 @@ export function createAppConfig(
     globalSkillsDir: join(appHome, "skills"),
     localSkillsDir: resolve(cwd, "skills"),
     memoryFile: join(appHome, "memory.json"),
-    session: {
-      messageCompactionLimit,
-      scratchpadCompactionLimit,
-      charCompactionLimit,
-      retainRecentMessages,
-      retainRecentScratchpad,
-      maxCompactionRecords,
-    },
     gateway: {
       url: env.BINACLAW_GATEWAY_URL ?? stored.gateway?.url,
       host: env.BINACLAW_GATEWAY_HOST ?? stored.gateway?.host ?? "127.0.0.1",
@@ -237,7 +205,6 @@ function sanitizeStoredConfig(input: StoredAppConfig): StoredAppConfig {
     provider: sanitizeSection(stripped.provider),
     binance: sanitizeSection(stripped.binance),
     brave: sanitizeSection(stripped.brave),
-    session: sanitizeSection(stripped.session),
     gateway: sanitizeSection(stripped.gateway),
     telegram: sanitizeSection(stripped.telegram),
   };
@@ -257,7 +224,6 @@ function stripStoredSecrets(input: StoredAppConfig): StoredAppConfig {
         }
       : undefined,
     brave: input.brave,
-    session: input.session,
     gateway: input.gateway,
     telegram: input.telegram,
   };

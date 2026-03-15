@@ -106,7 +106,14 @@ export function createPlan(context: PlannerContext): PlanResult {
   }
 
   if (intent.categories.includes("trade")) {
-    if (!intent.symbol || !intent.side || !intent.quantity) {
+    const canUseSpotQuoteOrderQty = Boolean(
+      intent.marketType === "spot"
+        && intent.orderType === "MARKET"
+        && intent.side === "BUY"
+        && intent.quoteOrderQty,
+    );
+
+    if (!intent.symbol || !intent.side || (!intent.quantity && !canUseSpotQuoteOrderQty)) {
       if (intent.symbol && isAdvisoryTradePrompt(context.input)) {
         return {
           skills: activeSkills,
@@ -118,7 +125,8 @@ export function createPlan(context: PlannerContext): PlanResult {
         skills: activeSkills,
         toolCalls,
         intent,
-        directResponse: "下单请至少提供方向、数量和交易对，例如：买 0.01 BTCUSDT 或 sell 0.5 ETHUSDT。",
+        directResponse:
+          "下单请至少提供方向、交易对，以及数量或买入金额，例如：买 0.01 BTCUSDT，或 BTCUSDT 现货市价买入 20 USDT。",
       };
     }
 
@@ -129,6 +137,7 @@ export function createPlan(context: PlannerContext): PlanResult {
         side: intent.side,
         type: intent.orderType ?? "MARKET",
         quantity: intent.quantity,
+        quoteOrderQty: canUseSpotQuoteOrderQty ? intent.quoteOrderQty : undefined,
         price: intent.price,
       },
       dangerous: true,

@@ -41,6 +41,9 @@ export function createToolRegistryFromSkills(
     {
       id: "market.getTicker",
       description: "获取现货 24 小时 ticker",
+      operation: "24hr ticker",
+      method: "GET",
+      path: "/api/v3/ticker/24hr",
       inputSchema: { type: "object", required: ["symbol"], properties: { symbol: { type: "string" } } },
       outputSchema: { type: "object" },
       dangerous: false,
@@ -50,6 +53,9 @@ export function createToolRegistryFromSkills(
     {
       id: "market.getDepth",
       description: "获取盘口深度",
+      operation: "order book depth",
+      method: "GET",
+      path: "/api/v3/depth",
       inputSchema: { type: "object", required: ["symbol"], properties: { symbol: { type: "string" }, limit: { type: "number" } } },
       outputSchema: { type: "object" },
       dangerous: false,
@@ -60,6 +66,9 @@ export function createToolRegistryFromSkills(
     {
       id: "market.getKlines",
       description: "获取 K 线数据",
+      operation: "klines",
+      method: "GET",
+      path: "/api/v3/klines",
       inputSchema: { type: "object", required: ["symbol"], properties: { symbol: { type: "string" }, interval: { type: "string" } } },
       outputSchema: { type: "array" },
       dangerous: false,
@@ -72,6 +81,9 @@ export function createToolRegistryFromSkills(
     {
       id: "market.getFunding",
       description: "获取合约 funding 概览",
+      operation: "premium index",
+      method: "GET",
+      path: "/fapi/v1/premiumIndex",
       inputSchema: { type: "object", required: ["symbol"], properties: { symbol: { type: "string" } } },
       outputSchema: { type: "object" },
       dangerous: false,
@@ -81,6 +93,9 @@ export function createToolRegistryFromSkills(
     {
       id: "spot.getAccount",
       description: "获取现货账户余额",
+      operation: "spot account",
+      method: "GET",
+      path: "/api/v3/account",
       inputSchema: { type: "object" },
       outputSchema: { type: "object" },
       dangerous: false,
@@ -90,6 +105,9 @@ export function createToolRegistryFromSkills(
     {
       id: "spot.getOpenOrders",
       description: "获取现货未完成订单",
+      operation: "spot open orders",
+      method: "GET",
+      path: "/api/v3/openOrders",
       inputSchema: { type: "object", properties: { symbol: { type: "string" } } },
       outputSchema: { type: "array" },
       dangerous: false,
@@ -99,6 +117,9 @@ export function createToolRegistryFromSkills(
     {
       id: "spot.getTrades",
       description: "获取现货成交历史",
+      operation: "spot trade history",
+      method: "GET",
+      path: "/api/v3/myTrades",
       inputSchema: { type: "object", required: ["symbol"], properties: { symbol: { type: "string" }, limit: { type: "number" } } },
       outputSchema: { type: "array" },
       dangerous: false,
@@ -109,16 +130,24 @@ export function createToolRegistryFromSkills(
     {
       id: "spot.placeOrder",
       description: "提交现货订单",
+      operation: "spot new order",
+      method: "POST",
+      path: "/api/v3/order",
       inputSchema: {
         type: "object",
-        required: ["symbol", "side", "type", "quantity"],
+        required: ["symbol", "side", "type"],
         properties: {
           symbol: { type: "string" },
           side: { type: "string", enum: ["BUY", "SELL"] },
           type: { type: "string", enum: ["MARKET", "LIMIT"] },
           quantity: { type: "number" },
+          quoteOrderQty: { type: "number" },
           price: { type: "number" },
         },
+        anyOf: [
+          { type: "object", required: ["quantity"] },
+          { type: "object", required: ["quoteOrderQty"] },
+        ],
       },
       outputSchema: { type: "object" },
       dangerous: true,
@@ -129,7 +158,8 @@ export function createToolRegistryFromSkills(
             symbol: String(input.symbol),
             side: String(input.side),
             type: String(input.type),
-            quantity: Number(input.quantity),
+            quantity: input.quantity !== undefined ? Number(input.quantity) : undefined,
+            quoteOrderQty: input.quoteOrderQty !== undefined ? Number(input.quoteOrderQty) : undefined,
             price: input.price ? Number(input.price) : undefined,
           }),
         ),
@@ -137,6 +167,9 @@ export function createToolRegistryFromSkills(
     {
       id: "spot.cancelOrder",
       description: "撤销现货订单",
+      operation: "spot cancel order",
+      method: "DELETE",
+      path: "/api/v3/order",
       inputSchema: { type: "object", required: ["symbol", "orderId"], properties: { symbol: { type: "string" }, orderId: { type: "number" } } },
       outputSchema: { type: "object" },
       dangerous: true,
@@ -147,6 +180,9 @@ export function createToolRegistryFromSkills(
     {
       id: "futures.getAccount",
       description: "获取合约账户",
+      operation: "futures account",
+      method: "GET",
+      path: "/fapi/v2/account",
       inputSchema: { type: "object" },
       outputSchema: { type: "object" },
       dangerous: false,
@@ -156,6 +192,9 @@ export function createToolRegistryFromSkills(
     {
       id: "futures.getPositions",
       description: "获取合约持仓",
+      operation: "futures position risk",
+      method: "GET",
+      path: "/fapi/v2/positionRisk",
       inputSchema: { type: "object" },
       outputSchema: { type: "array" },
       dangerous: false,
@@ -165,6 +204,9 @@ export function createToolRegistryFromSkills(
     {
       id: "futures.getOpenOrders",
       description: "获取合约未完成订单",
+      operation: "futures open orders",
+      method: "GET",
+      path: "/fapi/v1/openOrders",
       inputSchema: { type: "object", properties: { symbol: { type: "string" } } },
       outputSchema: { type: "array" },
       dangerous: false,
@@ -175,6 +217,9 @@ export function createToolRegistryFromSkills(
     {
       id: "futures.placeOrder",
       description: "提交合约订单",
+      operation: "futures new order",
+      method: "POST",
+      path: "/fapi/v1/order",
       inputSchema: {
         type: "object",
         required: ["symbol", "side", "type", "quantity"],
@@ -203,6 +248,9 @@ export function createToolRegistryFromSkills(
     {
       id: "futures.cancelOrder",
       description: "撤销合约订单",
+      operation: "futures cancel order",
+      method: "DELETE",
+      path: "/fapi/v1/order",
       inputSchema: { type: "object", required: ["symbol", "orderId"], properties: { symbol: { type: "string" }, orderId: { type: "number" } } },
       outputSchema: { type: "object" },
       dangerous: true,
@@ -213,6 +261,9 @@ export function createToolRegistryFromSkills(
     {
       id: "wallet.getBalances",
       description: "获取资金钱包余额",
+      operation: "wallet balance",
+      method: "GET",
+      path: "/sapi/v1/asset/wallet/balance",
       inputSchema: { type: "object" },
       outputSchema: { type: "array" },
       dangerous: false,

@@ -1,6 +1,6 @@
 # BinaClaw
 
-Terminal-first Binance AI agent with skill-first runtime, workspace memory, session compaction, and approval-gated trading actions.
+Terminal-first Binance AI agent with skill-first runtime, workspace memory, persistent sessions, and approval-gated trading actions.
 
 BinaClaw is built for users who want a local CLI agent that can:
 
@@ -19,7 +19,7 @@ BinaClaw combines four ideas in one CLI product:
 2. `Workspace as source of truth`
    Session state, memory, trace context, tool index, and bootstrap documents live under a persistent workspace.
 3. `Session-centered agent loop`
-   Long chats do not just grow forever. BinaClaw persists the session, compacts it when needed, and flushes durable facts back into memory files.
+   Long chats keep their state in the workspace so CLI, Gateway, and Telegram can continue from the same conversation.
 4. `Approval-gated execution`
    Read-only requests run directly. Dangerous actions require explicit confirmation.
 
@@ -77,9 +77,17 @@ binaclaw onboard
 
 `binaclaw onboard` will:
 
-- save your OpenAI and Telegram settings into `~/.binaclaw/config.json`
-- save Binance private keys into `~/.binaclaw/env.local` when you choose to provide them
-- keep Binance secrets env-only
+- ask for:
+  - `BINACLAW_GATEWAY_PORT`
+  - `OPENAI_API_KEY`
+  - `OPENAI_MODEL`
+  - `TELEGRAM_BOT_TOKEN`
+  - `TELEGRAM_ALLOWED_USER_IDS`
+  - `BRAVE_SEARCH_API_KEY`
+  - `BINANCE_API_KEY`
+  - `BINANCE_API_SECRET`
+- save OpenAI / Telegram / Brave settings into `~/.binaclaw/config.json`
+- save Binance secrets into `~/.binaclaw/env.local`
 - start `gateway` in the background
 - start the Telegram provider in the background
 - print a success message when both are healthy
@@ -92,15 +100,14 @@ If you prefer manual setup, start chat and run:
 
 Minimum recommended configuration:
 
+- `BINACLAW_GATEWAY_PORT`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
-
-Optional but useful:
-
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_ALLOWED_USER_IDS`
 - `BRAVE_SEARCH_API_KEY`
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
-- `BINANCE_USE_TESTNET`
 
 Configuration priority:
 
@@ -108,11 +115,6 @@ Configuration priority:
 2. `~/.binaclaw/env.local` for locally stored Binance secrets managed by `binaclaw onboard`
 3. `config.json` for local app settings and non-Binance credentials
 4. code defaults
-
-Binance secrets are env-only from the runtime point of view, but `binaclaw onboard` can write them into a local machine-only env file:
-
-- `BINANCE_API_KEY`
-- `BINANCE_API_SECRET`
 
 They are never persisted to `config.json`. If older versions wrote them there, BinaClaw now ignores and purges them on startup.
 
@@ -160,15 +162,6 @@ Important config values:
   Required for private Binance endpoints. Must be supplied via local environment variable.
 - `BINANCE_API_SECRET`
   Required for signed Binance requests. Must be supplied via local environment variable.
-
-Session tuning values:
-
-- `BINACLAW_SESSION_MESSAGE_LIMIT`
-- `BINACLAW_SESSION_SCRATCHPAD_LIMIT`
-- `BINACLAW_SESSION_CHAR_LIMIT`
-- `BINACLAW_SESSION_RETAIN_MESSAGES`
-- `BINACLAW_SESSION_RETAIN_SCRATCHPAD`
-- `BINACLAW_SESSION_MAX_COMPACTIONS`
 
 ## Run
 

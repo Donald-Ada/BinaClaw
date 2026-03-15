@@ -70,29 +70,10 @@ export async function runCommand(argv: string[]): Promise<void> {
       const sessionManager = new SessionManager(
         config.workspaceSessionsIndexFile,
         config.workspaceSessionTranscriptsDir,
-        new MemoryStore(
-          config.memoryFile,
-          config.workspaceMemoryDir,
-          config.workspaceLongTermMemoryFile,
-          getWorkspaceDocumentPaths(config),
-        ),
-        config.session,
       );
       if (subcommand === "clear") {
         await sessionManager.clear();
         console.log("当前会话已清空。");
-        return;
-      }
-      if (subcommand === "compact") {
-        const memoryStore = new MemoryStore(
-          config.memoryFile,
-          config.workspaceMemoryDir,
-          config.workspaceLongTermMemoryFile,
-          getWorkspaceDocumentPaths(config),
-        );
-        const session = await sessionManager.load();
-        const compacted = await sessionManager.compactNow(session, await memoryStore.getWorkspaceContext(2));
-        console.log(formatSessionView(compacted));
         return;
       }
       const session = await sessionManager.load();
@@ -120,7 +101,6 @@ export async function runCommand(argv: string[]): Promise<void> {
         `Binance auth: ${config.binance.apiKey && config.binance.apiSecret ? "ready" : "read-only mode"}`,
         `Brave Search: ${config.brave.apiKey ? "configured" : "disabled"}`,
         `LLM provider: ${config.provider.apiKey ? "configured" : "fallback summaries only"}`,
-        `Session compaction: messages>${config.session.messageCompactionLimit}, scratchpad>${config.session.scratchpadCompactionLimit}, chars>${config.session.charCompactionLimit}`,
       ];
 
       try {
@@ -153,7 +133,6 @@ export async function runCommand(argv: string[]): Promise<void> {
         "- binaclaw onboard",
         "- binaclaw session",
         "- binaclaw session clear",
-        "- binaclaw session compact",
         "- binaclaw skills add <source>",
         "- binaclaw skills list",
         "- binaclaw auth status",

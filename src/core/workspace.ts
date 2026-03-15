@@ -129,7 +129,7 @@ function buildHeartbeatTemplate(): string {
     "## Routine Checks",
     "- 确认 workspace docs 是否存在且可读。",
     "- 确认 TOOLS.md 与 skills 索引同步。",
-    "- 确认 session compaction 没有丢失当前主题状态。",
+    "- 确认当前会话状态与 workspace 记录保持一致。",
     "",
   ].join("\n");
 }

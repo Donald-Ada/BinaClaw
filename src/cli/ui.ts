@@ -9,7 +9,7 @@ const CLEAR_LINE = "\r\u001b[2K";
 const DESK_TIPS = [
   "试试直接问：今天 BNB 能买吗",
   "输入 /trace 可以查看这轮技能选择和工具调用",
-  "输入 /session 可以查看当前会话主题和压缩状态",
+  "输入 /session 可以查看当前会话主题和状态",
   "想刷新 skills，直接输入 /skills",
   "Binance 密钥仅从本机环境变量读取，更安全",
 ];
@@ -468,6 +468,10 @@ export function renderMarkdownForTerminal(markdown: string): string {
   }
 
   return collapseBlankLines(output).join("\n");
+}
+
+export function renderMarkdownToPlainText(markdown: string): string {
+  return stripAnsi(renderMarkdownForTerminal(markdown));
 }
 
 function renderMarketPulseStrip(items: DeskMarketPulseItem[]): string {

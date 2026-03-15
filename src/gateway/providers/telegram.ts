@@ -1,4 +1,5 @@
 import {Bot, GrammyError, HttpError} from "grammy";
+import {renderMarkdownToPlainText} from "../../cli/ui.ts";
 import {createAppConfig} from "../../core/config.ts";
 import {markManagedServiceReady} from "../../core/service-manager.ts";
 import type {AppConfig} from "../../core/types.ts";
@@ -26,12 +27,9 @@ export async function runTelegramProvider(config = createAppConfig()): Promise<v
   await gateway.connect();
   await gateway.health();
 
-  const nativeFetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis);
-
   const bot = new Bot(config.telegram.botToken, {
     client: {
       apiRoot: config.telegram.apiBaseUrl,
-      fetch: nativeFetch,
     },
   });
 
@@ -60,7 +58,7 @@ export async function runTelegramProvider(config = createAppConfig()): Promise<v
         "可用命令：",
         "/reset - 重置当前会话",
         "/trace [json|clear|intent|plan|observation|approval|response|fallback] - 查看轨迹",
-        "/session [json|compact] - 查看会话状态",
+        "/session [json] - 查看会话状态",
       ].join("\n"),
     );
   });
@@ -80,7 +78,6 @@ export async function runTelegramProvider(config = createAppConfig()): Promise<v
         "/trace plan",
         "/session",
         "/session json",
-        "/session compact",
       ].join("\n"),
     );
   });
@@ -130,12 +127,6 @@ export async function runTelegramProvider(config = createAppConfig()): Promise<v
     const sessionKey = getTelegramSessionKey(ctx);
     const args = parseTelegramCommandArgs(ctx.match);
 
-    if (args[0] === "compact") {
-      const session = await gateway.compactSession(sessionKey);
-      await replyInChunks(ctx, `已执行手动 compact。\n\n${formatSessionView(session)}`);
-      return;
-    }
-
     const session = await gateway.getSession(sessionKey);
     if (args[0] === "json") {
       await replyInChunks(ctx, formatSessionJson(session));
@@ -176,13 +167,13 @@ export async function runTelegramProvider(config = createAppConfig()): Promise<v
   process.once("SIGINT", () => bot.stop());
   process.once("SIGTERM", () => bot.stop());
 
+  const botInfo = await bot.api.getMe();
+  await markManagedServiceReady("telegram", { username: botInfo.username ?? botInfo.first_name });
+  console.log(`Telegram provider connected as @${botInfo.username ?? botInfo.first_name}.`);
+
   await bot.start({
     timeout: config.telegram.pollingTimeoutSeconds,
     allowed_updates: ["message"],
-    onStart: async (botInfo) => {
-      await markManagedServiceReady("telegram", { username: botInfo.username ?? botInfo.first_name });
-      console.log(`Telegram provider connected as @${botInfo.username ?? botInfo.first_name}.`);
-    },
   });
 }
 
@@ -242,8 +233,27 @@ export function isTelegramCommandMessage(
   return entities.some((entity) => entity.type === "bot_command" && entity.offset === 0);
 }
 
-function sanitizeTelegramText(text: string): string {
-  return text.replace(/\u0000/g, "");
+export function sanitizeTelegramText(text: string): string {
+  const normalized = decodeTelegramEscapes(text).replace(/\u0000/g, "");
+  return renderMarkdownToPlainText(normalized);
+}
+
+function decodeTelegramEscapes(text: string): string {
+  if (!(text.includes("\\n") || text.includes("\\r") || text.includes("\\t") || text.includes("\\\""))) {
+    return text;
+  }
+  try {
+    const reparsed = JSON.parse(
+      JSON.stringify(text)
+        .replace(/\\\\n/g, "\\n")
+        .replace(/\\\\r/g, "\\r")
+        .replace(/\\\\t/g, "\\t")
+        .replace(/\\\\\"/g, '\\"'),
+    );
+    return typeof reparsed === "string" ? reparsed : text;
+  } catch {
+    return text;
+  }
 }
 
 function splitTelegramText(text: string): string[] {
@@ -486,7 +496,7 @@ export function createTelegramDraftStreamer(
   if (!ctx.replyWithDraft) {
     throw new Error("replyWithDraft is not available for this context.");
   }
-  const replyWithDraft = ctx.replyWithDraft;
+  const replyWithDraft = ctx.replyWithDraft.bind(ctx);
 
   const initialThreshold = options.initialThreshold ?? TELEGRAM_STREAM_INITIAL_THRESHOLD;
   const editIntervalMs = options.editIntervalMs ?? TELEGRAM_STREAM_EDIT_INTERVAL_MS;

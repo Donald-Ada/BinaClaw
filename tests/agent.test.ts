@@ -309,6 +309,16 @@ class CallBudgetToolProvider extends CallBudgetDirectProvider {
     this.planCalls += 1;
     return {
       selectedSkillNames: ["news-signal"],
+      endpointDecision: {
+        skillName: "news-signal",
+        toolId: "news.getSignal",
+        endpointId: "news.getSignal",
+        operation: "news signal lookup",
+        method: "GET",
+        path: "/res/v1/news/search",
+        transport: "builtin",
+        rationale: "用户在看 BTC 最新新闻。",
+      },
       toolCalls: [{ toolId: "news.getSignal", input: { query: "btc news" } }],
     };
   }
@@ -442,8 +452,34 @@ test("agent creates approval flow for dangerous trades", async () => {
   const result = await agent.handleInput("买 0.01 BTCUSDT");
   assert.equal(result.approval?.toolId, "spot.placeOrder");
   assert.ok(result.text.includes("CONFIRM"));
+  assert.ok(result.text.includes("确认"));
 
-  const confirmed = await agent.handleInput("CONFIRM");
+  const confirmed = await agent.handleInput("确认");
+  assert.ok(confirmed.text.includes("spot.placeOrder"));
+  assert.equal(confirmed.toolResults[0]?.ok, true);
+});
+
+test("agent creates approval flow for spot market buys with quoteOrderQty", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
+  await mkdir(join(home, "skills"), { recursive: true });
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  await ensureAppDirectories(config);
+
+  const agent = new BinaClawAgent(config, {
+    provider: new FakeProvider(),
+    skills: stubSkills,
+    toolRegistry: createTestRegistry(),
+  });
+
+  const result = await agent.handleInput("BTCUSDT 现货，市价买入 20 USDT");
+  assert.equal(result.approval?.toolId, "spot.placeOrder");
+  assert.equal(result.approval?.toolCall.input.symbol, "BTCUSDT");
+  assert.equal(result.approval?.toolCall.input.side, "BUY");
+  assert.equal(result.approval?.toolCall.input.type, "MARKET");
+  assert.equal(result.approval?.toolCall.input.quoteOrderQty, 20);
+  assert.equal(result.approval?.toolCall.input.quantity, undefined);
+
+  const confirmed = await agent.handleInput("确认下单");
   assert.ok(confirmed.text.includes("spot.placeOrder"));
   assert.equal(confirmed.toolResults[0]?.ok, true);
 });
@@ -543,7 +579,7 @@ test("agent uses one main planning call for direct replies without extra model h
   assert.match(result.text, /哪个交易对/);
   assert.equal(provider.planCalls, 1);
   assert.equal(provider.summarizeCalls, 0);
-  assert.equal(provider.selectSkillCalls, 0);
+  assert.equal(provider.selectSkillCalls, 1);
   assert.equal(provider.resolveConversationCalls, 0);
   assert.equal(provider.composeCalls, 0);
 });
@@ -562,9 +598,15 @@ test("agent uses planning plus summary for tool-backed replies without extra hel
   assert.equal(result.toolResults.some((item) => item.toolId === "news.getSignal"), true);
   assert.equal(provider.planCalls, 1);
   assert.equal(provider.summarizeCalls, 1);
-  assert.equal(provider.selectSkillCalls, 0);
+  assert.equal(provider.selectSkillCalls, 1);
   assert.equal(provider.resolveConversationCalls, 0);
   assert.equal(provider.composeCalls, 0);
+  assert.equal(
+    agent.getSession().scratchpad.some((item) =>
+      item.kind === "plan" && item.summary.includes("skill 接口决策") && item.detail?.includes("/res/v1/news/search")
+    ),
+    true,
+  );
 });
 
 test("fast analysis path streams the final summary directly without a local early prelude", async () => {
@@ -854,9 +896,32 @@ test("agent keeps approval lifecycle replies local and deterministic", async () 
   const approval = await agent.handleInput("买 0.01 BTCUSDT");
   assert.equal(approval.approval?.toolId, "spot.placeOrder");
   assert.match(approval.text, /CONFIRM/);
+  assert.match(approval.text, /确认/);
 
-  const confirmed = await agent.handleInput("CONFIRM");
+  const reminder = await agent.handleInput("等等");
+  assert.match(reminder.text, /确认/);
+
+  const confirmed = await agent.handleInput("确认");
   assert.match(confirmed.text, /spot\.placeOrder/);
+});
+
+test("agent rebuilds approval tool resolution when the in-memory approval registry is missing", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  const agent = new BinaClawAgent(config, {
+    provider: new FakeProvider(),
+    skills: stubSkills,
+    toolRegistry: createTestRegistry(),
+  });
+
+  const approval = await agent.handleInput("买 0.01 BTCUSDT");
+  assert.equal(approval.approval?.toolId, "spot.placeOrder");
+
+  (agent as unknown as { approvalToolRegistry?: Map<string, ToolDefinition> }).approvalToolRegistry = new Map();
+
+  const confirmed = await agent.handleInput("确认");
+  assert.match(confirmed.text, /spot\.placeOrder/);
+  assert.equal(confirmed.toolResults[0]?.ok, true);
 });
 
 test("agent reloads persisted session context across agent instances", async () => {
@@ -1114,4 +1179,80 @@ test("agent lazily loads auth references for active official skills", async () =
   assert.equal(referenceContext.length, 1);
   assert.equal(referenceContext[0]?.relativePath, "references/authentication.md");
   assert.ok(referenceContext[0]?.content.includes("HMAC"));
+});
+
+test("agent loads auth, parameter and security references for trade prompts on selected skills", async () => {
+  const home = await mkdtemp(join(tmpdir(), "binaclaw-agent-"));
+  const skillRoot = join(home, "skills", "spot");
+  await mkdir(join(skillRoot, "references"), { recursive: true });
+  await writeFile(join(skillRoot, "references", "authentication.md"), "HMAC signing rules", "utf8");
+  await writeFile(join(skillRoot, "references", "parameters.md"), "quoteOrderQty, minNotional, precision rules", "utf8");
+  await writeFile(join(skillRoot, "references", "security.md"), "mainnet confirmation and approval policy", "utf8");
+
+  const spotSkill = {
+    manifest: {
+      name: "spot",
+      version: "1.0.0",
+      description: "现货交易技能",
+      capabilities: ["trade"],
+      requires_auth: true,
+      dangerous: true,
+      products: ["spot"],
+      tools: ["spot.placeOrder"],
+    },
+    toolDefinitions: [],
+    knowledge: {
+      ...createEmptyKnowledge(),
+      endpointHints: [
+        {
+          id: "spot.placeOrder",
+          operation: "place order",
+          description: "提交现货订单",
+          method: "POST",
+          path: "/api/v3/order",
+          authRequired: true,
+          requiredParams: ["symbol", "side", "type"],
+          optionalParams: ["quantity", "quoteOrderQty"],
+          transport: "binance-signed-http",
+          dangerLevel: "mutating",
+        },
+      ],
+      referenceFiles: [
+        {
+          relativePath: "references/authentication.md",
+          absolutePath: join(skillRoot, "references", "authentication.md"),
+        },
+        {
+          relativePath: "references/parameters.md",
+          absolutePath: join(skillRoot, "references", "parameters.md"),
+        },
+        {
+          relativePath: "references/security.md",
+          absolutePath: join(skillRoot, "references", "security.md"),
+        },
+      ],
+    },
+    instructions: "## When to use\n用于现货下单。\n\n## Instructions\n优先检查参数、认证和安全规则。",
+    sourcePath: join(skillRoot, "SKILL.md"),
+    rootDir: skillRoot,
+    warnings: [],
+  } satisfies InstalledSkill;
+
+  const config = createAppConfig({ BINACLAW_HOME: home }, process.cwd());
+  const agent = new BinaClawAgent(config, {
+    provider: new FakeProvider(),
+    skills: [spotSkill],
+    toolRegistry: createTestRegistry(),
+  });
+
+  await agent.handleInput("BTCUSDT 现货，市价买入 20 USDT");
+  const referenceContext = agent.getSession().referenceContext ?? [];
+  assert.deepEqual(
+    referenceContext.map((item) => item.relativePath),
+    [
+      "references/authentication.md",
+      "references/parameters.md",
+      "references/security.md",
+    ],
+  );
 });

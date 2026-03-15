@@ -168,7 +168,8 @@ export class BinanceClient {
     symbol: string;
     side: string;
     type: string;
-    quantity: number;
+    quantity?: number;
+    quoteOrderQty?: number;
     price?: number;
   }): Promise<unknown> {
     return this.requestSigned("spot", "POST", "/api/v3/order", {
@@ -176,6 +177,7 @@ export class BinanceClient {
       side: input.side,
       type: input.type,
       quantity: input.quantity,
+      quoteOrderQty: input.quoteOrderQty,
       price: input.price,
       timeInForce: input.type === "LIMIT" ? "GTC" : undefined,
       newClientOrderId: `binaclaw-${randomUUID().slice(0, 12)}`,

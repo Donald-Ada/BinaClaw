@@ -131,11 +131,6 @@ export class GatewayWsClient {
     return response.session;
   }
 
-  async compactSession(sessionKey: string): Promise<SessionState> {
-    const response = await this.request<GatewaySessionResponse>("session.compact", { sessionKey });
-    return response.session;
-  }
-
   async clearTrace(sessionKey: string): Promise<SessionState> {
     const response = await this.request<GatewaySessionResponse>("trace.clear", { sessionKey });
     return response.session;
@@ -283,11 +278,6 @@ export class RemoteBinaClawAgentClient {
 
   async clearSession(): Promise<SessionState> {
     this.session = await this.gateway.clearSession(this.sessionKey);
-    return this.session;
-  }
-
-  async compactSessionNow(): Promise<SessionState> {
-    this.session = await this.gateway.compactSession(this.sessionKey);
     return this.session;
   }
 

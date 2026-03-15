@@ -5,6 +5,8 @@ export type JsonSchema = {
   required?: string[];
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
 };
 
 export type ToolAuthScope = "none" | "spot" | "futures" | "wallet";
@@ -64,15 +66,6 @@ export interface BraveSearchConfig {
   uiLanguage: string;
 }
 
-export interface SessionConfig {
-  messageCompactionLimit: number;
-  scratchpadCompactionLimit: number;
-  charCompactionLimit: number;
-  retainRecentMessages: number;
-  retainRecentScratchpad: number;
-  maxCompactionRecords: number;
-}
-
 export interface WorkspaceDocumentPaths {
   agentsFile: string;
   soulFile: string;
@@ -118,7 +111,6 @@ export interface AppConfig {
   globalSkillsDir: string;
   localSkillsDir: string;
   memoryFile: string;
-  session: SessionConfig;
   gateway: GatewayConfig;
   telegram: TelegramConfig;
   provider: ProviderConfig;
@@ -151,15 +143,6 @@ export interface StoredBraveSearchConfig {
   uiLanguage?: string;
 }
 
-export interface StoredSessionConfig {
-  messageCompactionLimit?: number;
-  scratchpadCompactionLimit?: number;
-  charCompactionLimit?: number;
-  retainRecentMessages?: number;
-  retainRecentScratchpad?: number;
-  maxCompactionRecords?: number;
-}
-
 export interface StoredGatewayConfig {
   url?: string;
   host?: string;
@@ -178,7 +161,6 @@ export interface StoredAppConfig {
   provider?: StoredProviderConfig;
   binance?: StoredBinanceConfig;
   brave?: StoredBraveSearchConfig;
-  session?: StoredSessionConfig;
   gateway?: StoredGatewayConfig;
   telegram?: StoredTelegramConfig;
 }
@@ -332,6 +314,9 @@ export interface ToolDefinition<Input = Record<string, unknown>> {
   authScope: ToolAuthScope;
   transport?: SkillTransportKind;
   sourceSkill?: string;
+  operation?: string;
+  method?: string;
+  path?: string;
   handler: (input: Input, context: ToolExecutionContext) => Promise<ToolResult>;
 }
 
@@ -366,15 +351,6 @@ export interface ConversationState {
   summary?: string;
 }
 
-export interface SessionCompactionRecord {
-  timestamp: string;
-  trigger: "messages" | "scratchpad" | "chars" | "manual";
-  summary: string;
-  durableFacts: string[];
-  droppedMessages: number;
-  droppedScratchpad: number;
-}
-
 export interface SessionSnapshot {
   id?: string;
   key?: string;
@@ -389,8 +365,6 @@ export interface SessionSnapshot {
   portfolioContext?: string;
   lastIntent?: IntentAnalysis;
   conversationState?: ConversationState;
-  compactionSummary?: string;
-  compactions?: SessionCompactionRecord[];
 }
 
 export interface SessionIndexEntry {
@@ -403,7 +377,6 @@ export interface SessionIndexEntry {
   updatedAt: string;
   messageCount: number;
   scratchpadCount: number;
-  compactionCount: number;
   snapshot: SessionSnapshot;
 }
 
@@ -419,7 +392,6 @@ export interface SessionTranscriptEvent {
     | "message"
     | "scratchpad"
     | "approval"
-    | "compaction"
     | "session.cleared";
   sessionId: string;
   sessionKey: string;
@@ -442,8 +414,6 @@ export interface SessionState {
   referenceContext?: SkillReferenceSnippet[];
   lastIntent?: IntentAnalysis;
   conversationState?: ConversationState;
-  compactionSummary?: string;
-  compactions?: SessionCompactionRecord[];
 }
 
 export interface MemoryState {
@@ -470,6 +440,7 @@ export interface IntentAnalysis {
   categories: string[];
   symbol?: string;
   quantity?: number;
+  quoteOrderQty?: number;
   price?: number;
   side?: "BUY" | "SELL";
   marketType?: "spot" | "futures";
@@ -556,6 +527,9 @@ export interface PlanningToolCandidate {
   inputSchema: JsonSchema;
   sourceSkill?: string;
   transport?: SkillTransportKind;
+  operation?: string;
+  method?: string;
+  path?: string;
 }
 
 export interface CompiledToolCandidate extends PlanningToolCandidate {
@@ -586,24 +560,22 @@ export interface ConversationStateRequest {
   memoryContext?: WorkspaceMemoryContext;
 }
 
-export interface SessionCompactionRequest {
-  session: SessionState;
-  messagesToCompact: ChatMessage[];
-  scratchpadToCompact: ReasoningStep[];
-  trigger: SessionCompactionRecord["trigger"];
-  memoryContext?: WorkspaceMemoryContext;
-}
-
-export interface SessionCompactionResult {
-  summary: string;
-  durableFacts: string[];
-  conversationState?: ConversationState;
+export interface EndpointDecision {
+  skillName?: string;
+  toolId?: string;
+  endpointId?: string;
+  operation?: string;
+  method?: string;
+  path?: string;
+  transport?: SkillTransportKind;
+  rationale?: string;
 }
 
 export interface ModelPlanResult {
   selectedSkillNames?: string[];
   directResponse?: string;
   conversationStateUpdate?: ConversationState;
+  endpointDecision?: EndpointDecision;
   toolCalls?: Array<{
     toolId: string;
     input: Record<string, unknown>;

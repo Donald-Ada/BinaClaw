@@ -102,6 +102,20 @@ function extractQuantity(input: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+function extractQuoteOrderQty(input: string): number | undefined {
+  const marketBuyQuote = input.match(
+    /(?:现货|spot)?\s*(?:市价)?\s*(?:买入?|buy)\s*([0-9]+(?:\.[0-9]+)?)\s*(USDT|BUSD|FDUSD)\b/i,
+  );
+  if (marketBuyQuote) {
+    return Number(marketBuyQuote[1]);
+  }
+
+  const quoteAmount = input.match(
+    /([0-9]+(?:\.[0-9]+)?)\s*(USDT|BUSD|FDUSD)\s*(?:现货|spot)?\s*(?:市价)?\s*(?:买入?|buy)\b/i,
+  );
+  return quoteAmount ? Number(quoteAmount[1]) : undefined;
+}
+
 function extractPrice(input: string): number | undefined {
   const match = input.match(/(?:价格|price|at)\s*([0-9]+(?:\.[0-9]+)?)/i);
   return match ? Number(match[1]) : undefined;
@@ -116,6 +130,7 @@ export function inferIntent(input: string): IntentAnalysis {
   const categories = new Set<string>();
   const symbol = extractSymbol(input);
   const quantity = extractQuantity(input);
+  const quoteOrderQty = extractQuoteOrderQty(input);
   const price = extractPrice(input);
   const orderId = extractOrderId(input);
 
@@ -158,6 +173,7 @@ export function inferIntent(input: string): IntentAnalysis {
     categories: Array.from(categories),
     symbol,
     quantity,
+    quoteOrderQty,
     price,
     side,
     marketType,

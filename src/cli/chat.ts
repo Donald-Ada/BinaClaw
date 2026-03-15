@@ -45,10 +45,9 @@ export async function runChat(): Promise<void> {
           "- /exit: 退出",
           "- /config: 配置 OpenAI / Brave / Telegram 与本地运行参数；Binance key 仅支持环境变量",
           "- /skills: 重新加载并查看已安装 skills",
-          "- /session: 查看当前会话状态、主题和 compaction 摘要",
+          "- /session: 查看当前会话状态和主题",
           "- /session json: 以 JSON 查看完整 session",
           "- /session clear: 清空当前会话与待确认状态",
-          "- /session compact now: 立即对当前会话做一次压缩",
           "- /trace: 查看最近的多轮推理轨迹和工具调用",
           "- /trace <kind>: 按 intent/plan/observation/approval/response/fallback 过滤",
           "- /trace json: 以 JSON 查看完整 trace",
@@ -84,22 +83,6 @@ export async function runChat(): Promise<void> {
       spinner.stop();
       await agent.clearSession();
       output.write(formatInfoBlock("Session", "当前会话已清空。", "success"));
-      continue;
-    }
-    if (trimmed === "/session compact now") {
-      spinner.stop();
-      const beforeCount = agent.getSession().compactions?.length ?? 0;
-      const session = await agent.compactSessionNow();
-      const afterCount = session.compactions?.length ?? 0;
-      output.write(
-        formatInfoBlock(
-          "Session",
-          afterCount > beforeCount
-            ? `已手动压缩当前会话。\n${formatSessionView(session)}`
-            : "当前会话还没有足够内容可压缩。",
-          afterCount > beforeCount ? "session" : "warning",
-        ),
-      );
       continue;
     }
     if (trimmed === "/session json") {

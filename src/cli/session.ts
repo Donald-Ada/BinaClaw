@@ -1,7 +1,6 @@
 import type {SessionState} from "../core/types.ts";
 
 export function formatSessionView(session: SessionState): string {
-  const latestCompaction = session.compactions?.at(-1);
   return [
     "Session identity",
     `- id: ${session.id ?? "main"}`,
@@ -19,15 +18,6 @@ export function formatSessionView(session: SessionState): string {
     "",
     "Conversation state",
     formatTopicState(session),
-    "",
-    "Compaction",
-    `- total compactions: ${session.compactions?.length ?? 0}`,
-    latestCompaction
-      ? `- latest: ${latestCompaction.timestamp} (${latestCompaction.trigger}, dropped_messages=${latestCompaction.droppedMessages}, dropped_scratchpad=${latestCompaction.droppedScratchpad})`
-      : "- latest: none",
-    session.compactionSummary
-      ? `- summary:\n${session.compactionSummary.slice(-1000)}`
-      : "- summary: none",
   ].join("\n");
 }
 

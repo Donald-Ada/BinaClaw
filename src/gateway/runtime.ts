@@ -39,7 +39,6 @@ export interface GatewayAgentLike {
   getSession(): SessionState;
   clearTrace(): void;
   clearSession(): Promise<SessionState>;
-  compactSessionNow(): Promise<SessionState>;
 }
 
 export type GatewayAgentFactory = (sessionKey: string) => Promise<GatewayAgentLike>;
@@ -95,11 +94,6 @@ export class GatewayRuntime {
       case "session.clear": {
         const agent = await this.createAgent(sessionKey);
         const session = await this.enqueue(sessionKey, async () => await agent.clearSession());
-        return { session };
-      }
-      case "session.compact": {
-        const agent = await this.createAgent(sessionKey);
-        const session = await this.enqueue(sessionKey, async () => await agent.compactSessionNow());
         return { session };
       }
       case "trace.clear": {
@@ -203,9 +197,6 @@ export function createDefaultAgentFactory(config: AppConfig): GatewayAgentFactor
     const sessionManager = new SessionManager(
       config.workspaceSessionsIndexFile,
       config.workspaceSessionTranscriptsDir,
-      memoryStore,
-      config.session,
-      provider,
       () => new Date(),
       sessionKey,
     );

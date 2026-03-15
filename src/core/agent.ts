@@ -1,4 +1,10 @@
-import {APPROVAL_CANCEL, APPROVAL_CONFIRMATION, createApprovalRequest, isApprovalExpired} from "./approval.ts";
+import {
+  APPROVAL_CANCEL,
+  APPROVAL_CONFIRMATION,
+  createApprovalRequest,
+  isApprovalExpired,
+  resolveApprovalDecision,
+} from "./approval.ts";
 import {BinanceClient} from "./binance.ts";
 import {createAppConfig, ensureAppDirectories} from "./config.ts";
 import {MemoryStore} from "./memory.ts";
@@ -6,7 +12,6 @@ import {createPlan} from "./planner.ts";
 import {type ChatProvider, fallbackSummary, OpenAICompatibleProvider} from "./provider.ts";
 import {inferIntent} from "./router.ts";
 import {SessionManager} from "./session.ts";
-import {SkillRetriever} from "./skill-retriever.ts";
 import {loadInstalledSkills, loadSkillReferenceSnippets, selectFallbackReferenceSnippets, syncWorkspaceToolsIndex} from "./skill.ts";
 import {compileSkillRuntime} from "./runtime.ts";
 import {createToolRegistry, createToolRegistryFromSkills, executeToolCall} from "./tools.ts";
@@ -18,6 +23,7 @@ import type {
   DeskMarketPulseItem,
   ConversationState,
   DirectResponseBrief,
+  EndpointDecision,
   InstalledSkill,
   ReasoningStep,
   SessionState,
@@ -32,7 +38,6 @@ interface AgentDependencies {
   memoryStore?: MemoryStore;
   sessionManager?: SessionManager;
   binanceClient?: BinanceClient;
-  skillRetriever?: SkillRetriever;
   skills?: InstalledSkill[];
   toolRegistry?: Map<string, ToolDefinition>;
 }
@@ -66,7 +71,6 @@ export class BinaClawAgent {
   private readonly memoryStore: MemoryStore;
   private readonly sessionManager: SessionManager;
   private readonly binanceClient: BinanceClient;
-  private readonly skillRetriever: SkillRetriever;
   private toolRegistry: Map<string, ToolDefinition>;
   private approvalToolRegistry?: Map<string, ToolDefinition>;
   private skills: InstalledSkill[] = [];
@@ -92,15 +96,11 @@ export class BinaClawAgent {
         getWorkspaceDocumentPaths(config),
       );
     this.binanceClient = deps.binanceClient ?? new BinanceClient(config.binance);
-    this.skillRetriever = deps.skillRetriever ?? new SkillRetriever();
     this.toolRegistry = deps.toolRegistry ?? createToolRegistry(config, this.binanceClient);
     this.sessionManager = deps.sessionManager
       ?? new SessionManager(
         config.workspaceSessionsIndexFile,
         config.workspaceSessionTranscriptsDir,
-        this.memoryStore,
-        config.session,
-        this.provider,
       );
     if (deps.skills) {
       this.skills = deps.skills;
@@ -138,12 +138,6 @@ export class BinaClawAgent {
     this.approvalToolRegistry = undefined;
     this.readOnlyToolCache.clear();
     this.inFlightReadOnlyCalls.clear();
-    return this.session;
-  }
-
-  async compactSessionNow(): Promise<SessionState> {
-    this.session.memoryContext = await this.memoryStore.getWorkspaceContext(2);
-    this.session = await this.sessionManager.compactNow(this.session, this.session.memoryContext);
     return this.session;
   }
 
@@ -216,17 +210,7 @@ export class BinaClawAgent {
     }
     callbacks.onStatus?.("正在加载工作区记忆...");
     this.session.memoryContext = await this.memoryStore.getWorkspaceContext(2);
-    const previousCompactionCount = this.session.compactions?.length ?? 0;
-    this.session = await this.sessionManager.prepareForTurn(this.session, this.session.memoryContext);
-    const latestCompaction = this.session.compactions?.at(-1);
-    if ((this.session.compactions?.length ?? 0) > previousCompactionCount && latestCompaction) {
-      this.addScratchpadStep(
-        0,
-        "fallback",
-        `会话已压缩，保留最近 ${this.session.messages.length} 条消息继续工作`,
-        latestCompaction.summary.slice(0, 300),
-      );
-    }
+    this.session = await this.sessionManager.prepareForTurn(this.session);
     callbacks.onStatus?.("正在选择技能...");
     const heuristicPlan = createPlan({
       input: resolvedInput,
@@ -235,21 +219,13 @@ export class BinaClawAgent {
       authAvailable: this.binanceClient.hasAuth(),
       conversationState: this.session.conversationState,
     });
-    const candidateEntries = this.provider.isConfigured()
-      ? this.skillRetriever.retrieve({
-          input: resolvedInput,
-          skills: this.skills,
-          limit: 8,
-          intentHint: heuristicPlan.intent,
-          conversationState: this.session.conversationState,
-          session: this.session,
-        }).candidates
-      : heuristicPlan.skills.map((skill) => ({ skill, score: 0 }));
-    const candidateSkills = candidateEntries.map((entry) => entry.skill);
+    const selectedSkills = this.provider.isConfigured()
+      ? await this.resolveActiveSkills(resolvedInput, heuristicPlan.skills)
+      : heuristicPlan.skills;
     const plan = this.provider.isConfigured()
       ? {
           ...heuristicPlan,
-          skills: candidateSkills.length > 0 ? candidateSkills : heuristicPlan.skills,
+          skills: selectedSkills.length > 0 ? selectedSkills : heuristicPlan.skills,
         }
       : heuristicPlan;
     this.addScratchpadStep(
@@ -263,8 +239,8 @@ export class BinaClawAgent {
       this.addScratchpadStep(
         0,
         "plan",
-        `候选技能召回 ${plan.skills.length} 个`,
-        candidateEntries.map((entry) => `${entry.skill.manifest.name}(${entry.score})`).join("、"),
+        `模型选中 ${plan.skills.length} 个技能进入主规划`,
+        plan.skills.map((skill) => skill.manifest.name).join("、"),
       );
     }
     if (hasMeaningfulIntent(plan.intent)) {
@@ -372,15 +348,7 @@ export class BinaClawAgent {
     return execution;
   }
 
-  private async resolveActiveSkills(input: string): Promise<InstalledSkill[]> {
-    const fallbackSkills = createPlan({
-      input,
-      skills: this.skills,
-      session: this.session,
-      authAvailable: this.binanceClient.hasAuth(),
-      conversationState: this.session.conversationState,
-    }).skills;
-
+  private async resolveActiveSkills(input: string, fallbackSkills: InstalledSkill[]): Promise<InstalledSkill[]> {
     if (!this.provider.isConfigured()) {
       return fallbackSkills;
     }
@@ -453,9 +421,19 @@ export class BinaClawAgent {
           : `模型规划 ${resolvedPlan.toolCalls.length} 个工具调用`,
         JSON.stringify({
           directResponse: resolvedPlan.directResponse,
+          endpointDecision: resolvedPlan.endpointDecision,
           toolCalls: resolvedPlan.toolCalls,
         }),
       );
+
+      if (resolvedPlan.endpointDecision) {
+        this.addScratchpadStep(
+          iteration,
+          "plan",
+          "模型给出了 skill 接口决策",
+          JSON.stringify(resolvedPlan.endpointDecision),
+        );
+      }
 
       if (resolvedPlan.conversationStateUpdate && hasMeaningfulConversationState(resolvedPlan.conversationStateUpdate)) {
         this.session.conversationState = mergeConversationState(this.session.conversationState, resolvedPlan.conversationStateUpdate);
@@ -790,7 +768,7 @@ export class BinaClawAgent {
     compiledRuntime: CompiledSkillRuntime,
     observations: ToolResult[],
     iteration: number,
-  ): Promise<ReturnType<typeof createPlan> & { conversationStateUpdate?: ConversationState }> {
+  ): Promise<ReturnType<typeof createPlan> & { conversationStateUpdate?: ConversationState; endpointDecision?: EndpointDecision }> {
     if (!this.provider.isConfigured()) {
       return heuristicPlan;
     }
@@ -803,6 +781,9 @@ export class BinaClawAgent {
       inputSchema: tool.inputSchema,
       sourceSkill: tool.sourceSkill,
       transport: tool.transport,
+      operation: tool.operation,
+      method: tool.method,
+      path: tool.path,
     }));
 
     if (allowedTools.length === 0) {
@@ -847,6 +828,7 @@ export class BinaClawAgent {
         directResponse: modelPlan.directResponse ?? heuristicPlan.directResponse,
         toolCalls: validatedCalls,
         conversationStateUpdate: modelPlan.conversationStateUpdate,
+        endpointDecision: modelPlan.endpointDecision,
       };
     } catch (error) {
       this.addScratchpadStep(
@@ -918,8 +900,8 @@ export class BinaClawAgent {
       };
     }
 
-    const normalized = input.toUpperCase();
-    if (normalized === APPROVAL_CANCEL) {
+    const decision = resolveApprovalDecision(input);
+    if (decision === "cancel") {
       this.session.pendingApproval = undefined;
       this.approvalToolRegistry = undefined;
       await this.persistSession();
@@ -936,7 +918,7 @@ export class BinaClawAgent {
       };
     }
 
-    if (normalized !== APPROVAL_CONFIRMATION) {
+    if (decision !== "confirm") {
       const seed = createApprovalReminderSeed(approval);
       return {
         text: await this.composeDirectResponse(
@@ -951,7 +933,13 @@ export class BinaClawAgent {
       };
     }
 
-    const runtimeRegistry = this.approvalToolRegistry ?? this.toolRegistry;
+    let runtimeRegistry = this.approvalToolRegistry ?? this.toolRegistry;
+    if (!runtimeRegistry.has(approval.toolCall.toolId)) {
+      const approvalSkills = resolveActiveSkillsForSummary(this.skills, this.session.activeSkills, this.skills);
+      const compiledRuntime = await this.getCompiledRuntime(approvalSkills);
+      runtimeRegistry = compiledRuntime.toolRegistry;
+      this.approvalToolRegistry = compiledRuntime.toolRegistry;
+    }
     const result = await executeToolCall(runtimeRegistry, approval.toolCall.toolId, approval.toolCall.input, this.config);
     this.session.pendingApproval = undefined;
     this.approvalToolRegistry = undefined;
@@ -1105,12 +1093,15 @@ function createApprovalMissingSeed(): DirectResponseSeed {
 
 function createApprovalRequiredSeed(approval: ApprovalRequest): DirectResponseSeed {
   return {
-    draft: `这一步需要你确认后我才会继续，当前操作是 ${approval.toolId}。输入 ${APPROVAL_CONFIRMATION} 执行，输入 ${APPROVAL_CANCEL} 取消。`,
+    draft: `这一步需要你确认后我才会继续，当前操作是 ${approval.toolId}。输入 ${APPROVAL_CONFIRMATION} 或“确认”执行，输入 ${APPROVAL_CANCEL} 或“取消”终止。`,
     brief: {
       objective: "approval_required",
       status: "pending",
       facts: [`工具: ${approval.toolId}`, `风险级别: ${approval.riskLevel}`],
-      nextSteps: [`输入 ${APPROVAL_CONFIRMATION} 执行`, `输入 ${APPROVAL_CANCEL} 取消`],
+      nextSteps: [
+        `输入 ${APPROVAL_CONFIRMATION} 或“确认”执行`,
+        `输入 ${APPROVAL_CANCEL} 或“取消”终止`,
+      ],
       constraints: ["不要暴露敏感参数"],
     },
   };
@@ -1141,12 +1132,15 @@ function createApprovalCanceledSeed(approval: ApprovalRequest): DirectResponseSe
 
 function createApprovalReminderSeed(approval: ApprovalRequest): DirectResponseSeed {
   return {
-    draft: `还有一笔待确认操作没有处理，工具是 ${approval.toolId}。输入 ${APPROVAL_CONFIRMATION} 执行，输入 ${APPROVAL_CANCEL} 取消。`,
+    draft: `还有一笔待确认操作没有处理，工具是 ${approval.toolId}。输入 ${APPROVAL_CONFIRMATION} 或“确认”执行，输入 ${APPROVAL_CANCEL} 或“取消”终止。`,
     brief: {
       objective: "approval_reminder",
       status: "pending",
       facts: [`工具: ${approval.toolId}`],
-      nextSteps: [`输入 ${APPROVAL_CONFIRMATION} 执行`, `输入 ${APPROVAL_CANCEL} 取消`],
+      nextSteps: [
+        `输入 ${APPROVAL_CONFIRMATION} 或“确认”执行`,
+        `输入 ${APPROVAL_CANCEL} 或“取消”终止`,
+      ],
     },
   };
 }
@@ -1224,7 +1218,7 @@ function formatApprovalBrief(brief: DirectResponseBrief, draft: string): string 
   const status = brief.status;
   if (status === "pending") {
     return toolId
-      ? `当前操作 ${toolId} 需要确认。输入 ${APPROVAL_CONFIRMATION} 执行，输入 ${APPROVAL_CANCEL} 取消。`
+      ? `当前操作 ${toolId} 需要确认。输入 ${APPROVAL_CONFIRMATION} 或“确认”执行，输入 ${APPROVAL_CANCEL} 或“取消”终止。`
       : draft;
   }
   if (status === "expired") {

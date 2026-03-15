@@ -3,7 +3,6 @@ import test from "node:test";
 import {OpenAICompatibleProvider} from "../src/core/provider.ts";
 import type {
   PlanningRequest,
-  SessionCompactionRequest,
   SkillKnowledge,
   SkillReferenceSelectionRequest,
   SkillSelectionRequest,
@@ -273,50 +272,6 @@ test("OpenAICompatibleProvider resolves conversation state from recent session",
   });
 });
 
-test("OpenAICompatibleProvider compacts session context into summary and durable facts", async () => {
-  const provider = new OpenAICompatibleProvider(
-    {
-      apiKey: "demo-key",
-      baseUrl: "https://api.openai.com/v1",
-      model: "gpt-5.4",
-    },
-    createFakeClient(async () => ({
-      output_text: JSON.stringify({
-        summary: "此前会话主要围绕 BNB 现货短线判断。",
-        durableFacts: ["用户长期关注交易对 BNBUSDT"],
-        conversationState: {
-          currentSymbol: "BNBUSDT",
-          currentTopic: "market",
-          currentMarketType: "spot",
-          summary: "延续 BNB 现货分析。",
-        },
-      }),
-    })),
-  );
-
-  const result = await provider.compactSession?.({
-    session: {
-      messages: [
-        { role: "user", content: "今天 BNB 能买吗" },
-        { role: "assistant", content: "我先看 BNB 的实时信号。" },
-      ],
-      scratchpad: [],
-      activeSkills: [],
-      compactionSummary: "此前曾分析过 BNB。",
-    },
-    messagesToCompact: [
-      { role: "user", content: "今天 BNB 能买吗" },
-      { role: "assistant", content: "我先看 BNB 的实时信号。" },
-    ],
-    scratchpadToCompact: [],
-    trigger: "messages",
-  } satisfies SessionCompactionRequest);
-
-  assert.equal(result?.conversationState?.currentSymbol, "BNBUSDT");
-  assert.deepEqual(result?.durableFacts, ["用户长期关注交易对 BNBUSDT"]);
-  assert.match(result?.summary ?? "", /BNB 现货短线判断/);
-});
-
 test("OpenAICompatibleProvider parses official responses tool output", async () => {
   let seenParams:
     | {
@@ -335,7 +290,20 @@ test("OpenAICompatibleProvider parses official responses tool output", async () 
     createFakeClient(async (params) => {
       seenParams = params;
       return {
-        output_text: "先查新闻再决定。",
+        output_text: JSON.stringify({
+          selectedSkillNames: ["news-signal"],
+          endpointDecision: {
+            skillName: "news-signal",
+            toolId: "news.getSignal",
+            endpointId: "news.getSignal",
+            operation: "news signal lookup",
+            method: "GET",
+            path: "/res/v1/news/search",
+            transport: "builtin",
+            rationale: "用户要看 BTC 新闻，优先走资讯技能。",
+          },
+          directResponse: "",
+        }),
         output: [
           {
             type: "function_call",
@@ -363,7 +331,7 @@ test("OpenAICompatibleProvider parses official responses tool output", async () 
         },
         toolDefinitions: [],
         knowledge: createEmptyKnowledge(),
-        instructions: "",
+        instructions: "## When to use\n当用户要看热点时使用。\n\n## Instructions\n优先参考资讯相关端点，再结合最近会话判断是否需要补充市场背景。",
         sourcePath: "news.md",
         rootDir: process.cwd(),
         warnings: [],
@@ -385,6 +353,11 @@ test("OpenAICompatibleProvider parses official responses tool output", async () 
         description: "获取资讯",
         dangerous: false,
         authScope: "none",
+        sourceSkill: "news-signal",
+        transport: "builtin",
+        operation: "news signal lookup",
+        method: "GET",
+        path: "/res/v1/news/search",
         inputSchema: {
           type: "object",
           properties: {
@@ -414,9 +387,21 @@ test("OpenAICompatibleProvider parses official responses tool output", async () 
   assert.ok(seenParams?.input[1]?.content[0]?.text.includes("最近会话:"));
   assert.ok(seenParams?.input[1]?.content[0]?.text.includes("今天 BNB 能买吗"));
   assert.ok(seenParams?.input[1]?.content[0]?.text.includes("继续"));
-  assert.ok(seenParams?.input[1]?.content[0]?.text.includes("候选 skills:"));
+  assert.ok(seenParams?.input[1]?.content[0]?.text.includes("已选中 skills 的 SKILL.md 文档:"));
+  assert.ok(seenParams?.input[1]?.content[0]?.text.includes("## When to use"));
+  assert.ok(seenParams?.tools?.[0]?.description.includes("path=/res/v1/news/search"));
   assert.equal(result?.toolCalls?.[0]?.toolId, "news.getSignal");
   assert.deepEqual(result?.toolCalls?.[0]?.input, { query: "btc news" });
+  assert.deepEqual(result?.endpointDecision, {
+    skillName: "news-signal",
+    toolId: "news.getSignal",
+    endpointId: "news.getSignal",
+    operation: "news signal lookup",
+    method: "GET",
+    path: "/res/v1/news/search",
+    transport: "builtin",
+    rationale: "用户要看 BTC 新闻，优先走资讯技能。",
+  });
 });
 
 test("OpenAICompatibleProvider extracts stable memory facts", async () => {

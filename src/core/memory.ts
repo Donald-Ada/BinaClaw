@@ -160,33 +160,6 @@ export class MemoryStore {
     return promotedLines;
   }
 
-  async appendSessionCompactionRecord(summary: string, durableFacts: string[], now = new Date()): Promise<void> {
-    if (!this.workspaceMemoryDir) {
-      return;
-    }
-
-    await mkdir(this.workspaceMemoryDir, { recursive: true });
-    const filePath = join(this.workspaceMemoryDir, `${formatDate(now)}.md`);
-    const durableFactsBlock = durableFacts.length > 0
-      ? [
-          "durable_facts:",
-          ...durableFacts.map((line) => `- ${line}`),
-          "",
-        ].join("\n")
-      : "";
-    const entry = [
-      `## ${now.toISOString()} [session-compaction]`,
-      "",
-      summary.trim(),
-      "",
-      durableFactsBlock,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    const existing = await safeRead(filePath);
-    await writeFile(filePath, existing ? `${existing.trimEnd()}\n\n${entry}` : entry, "utf8");
-  }
-
   async getWorkspaceContext(limit = 2): Promise<WorkspaceMemoryContext> {
     const longTermMemory = this.workspaceLongTermMemoryFile
       ? await safeRead(this.workspaceLongTermMemoryFile)

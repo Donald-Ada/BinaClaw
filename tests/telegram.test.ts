@@ -5,6 +5,7 @@ import {
   isTelegramCommandMessage,
   parseTelegramCommandArgs,
   createTelegramTextStreamer,
+  sanitizeTelegramText,
 } from "../src/gateway/providers/telegram.ts";
 
 test("Telegram text streamer replies with early text and then edits as deltas arrive", async () => {
@@ -123,6 +124,42 @@ test("Telegram draft streamer uses native drafts before sending the final reply"
   assert.equal(stopped, 1);
 });
 
+test("Telegram draft streamer preserves the original context binding", async () => {
+  const drafts: string[] = [];
+
+  const ctx = {
+    chat: {id: 790, type: "private"},
+    msg: {message_id: 99},
+    async reply(text: string) {
+      drafts.push(`reply:${text}`);
+      return {message_id: 4};
+    },
+    async replyWithDraft(this: {msg?: {message_id: number}}, text: string) {
+      drafts.push(`${this.msg?.message_id}:${text}`);
+      return true;
+    },
+    async replyWithChatAction() {
+      return true;
+    },
+    api: {
+      async editMessageText() {
+        throw new Error("draft streamer should not use editMessageText");
+      },
+    },
+  };
+
+  const streamer = createTelegramDraftStreamer(ctx, () => undefined, {
+    initialThreshold: 1,
+    editIntervalMs: 0,
+  });
+
+  streamer.pushDelta("你");
+  await streamer.waitForIdle();
+  await streamer.finalize("你好");
+
+  assert.equal(drafts[0], "99:你");
+});
+
 test("Telegram text streamer sends follow-up chunks for long final replies", async () => {
   const replies: string[] = [];
   const edits: string[] = [];
@@ -217,4 +254,11 @@ test("isTelegramCommandMessage detects leading bot commands", () => {
     false,
   );
   assert.equal(isTelegramCommandMessage("hello", undefined), false);
+});
+
+test("sanitizeTelegramText decodes escaped newlines and strips markdown emphasis", () => {
+  const text = sanitizeTelegramText("可以，按当前上下文我先按 **BTCUSDT** 给你。\\n\\n**结论**：分批买。");
+  assert.equal(text.includes("\\n"), false);
+  assert.equal(text.includes("**"), false);
+  assert.equal(text.includes("结论"), true);
 });

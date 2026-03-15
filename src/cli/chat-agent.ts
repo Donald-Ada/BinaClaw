@@ -12,7 +12,6 @@ export interface ChatAgentLike {
   getSession(): SessionState;
   clearTrace(): void;
   clearSession(): Promise<SessionState>;
-  compactSessionNow(): Promise<SessionState>;
 }
 
 export function createChatAgent(config = createAppConfig()): ChatAgentLike {

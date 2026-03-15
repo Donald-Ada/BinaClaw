@@ -3,6 +3,22 @@ import type {ApprovalRequest, ToolCall, ToolResult} from "./types.ts";
 
 export const APPROVAL_CONFIRMATION = "CONFIRM";
 export const APPROVAL_CANCEL = "CANCEL";
+const APPROVAL_CONFIRM_ALIASES = new Set([
+  "CONFIRM",
+  "确认",
+  "确认执行",
+  "确认下单",
+  "执行",
+  "继续执行",
+]);
+const APPROVAL_CANCEL_ALIASES = new Set([
+  "CANCEL",
+  "取消",
+  "取消执行",
+  "取消下单",
+  "不执行",
+  "放弃",
+]);
 const APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function formatPortfolioContext(accountPreview?: ToolResult[]): string {
@@ -29,7 +45,7 @@ export function createApprovalRequest(toolCall: ToolCall, accountPreview?: ToolR
       `操作: ${toolCall.toolId}`,
       `风险等级: ${riskLevel === "high" ? "高" : "中"}`,
       `账户摘要: ${accountSummary}`,
-      `请在 5 分钟内输入 ${APPROVAL_CONFIRMATION} 确认，或输入 ${APPROVAL_CANCEL} 取消。`,
+      `请在 5 分钟内输入 ${APPROVAL_CONFIRMATION} 或“确认”执行，输入 ${APPROVAL_CANCEL} 或“取消”终止。`,
     ].join("\n"),
     riskLevel,
     payloadPreview,
@@ -40,4 +56,25 @@ export function createApprovalRequest(toolCall: ToolCall, accountPreview?: ToolR
 
 export function isApprovalExpired(approval: ApprovalRequest, now = new Date()): boolean {
   return new Date(approval.expiresAt).getTime() <= now.getTime();
+}
+
+export function resolveApprovalDecision(input: string): "confirm" | "cancel" | null {
+  const normalized = normalizeApprovalInput(input);
+  if (!normalized) {
+    return null;
+  }
+  if (APPROVAL_CONFIRM_ALIASES.has(normalized)) {
+    return "confirm";
+  }
+  if (APPROVAL_CANCEL_ALIASES.has(normalized)) {
+    return "cancel";
+  }
+  return null;
+}
+
+function normalizeApprovalInput(input: string): string {
+  return input
+    .trim()
+    .toUpperCase()
+    .replace(/[。，“”"'.!！?？、，\s]/g, "");
 }

@@ -57,6 +57,9 @@ export async function compileSkillRuntime(
     inputSchema: tool.inputSchema,
     transport: tool.transport,
     sourceSkill: tool.sourceSkill,
+    operation: tool.operation,
+    method: tool.method,
+    path: tool.path,
     runtimeDefinition: tool,
   }));
 
@@ -91,6 +94,9 @@ function createEndpointToolDefinition(
     authScope,
     transport: endpoint.transport,
     sourceSkill: skill.manifest.name,
+    operation: endpoint.operation,
+    method: endpoint.method,
+    path: endpoint.path,
     handler: async (input) => {
       try {
         const data = await executeEndpointTransport(skill, endpoint, input, config, client);
@@ -120,6 +126,9 @@ function createExecToolDefinition(skill: InstalledSkill, executionHint: SkillExe
     authScope: "none",
     transport: "exec",
     sourceSkill: skill.manifest.name,
+    operation: executionHint.name,
+    method: "EXEC",
+    path: executionHint.relativePath,
     handler: async (input) => {
       try {
         const args = Array.isArray(input.args)

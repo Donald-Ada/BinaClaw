@@ -24,14 +24,6 @@ test("createAppConfig loads persisted config from app home while keeping Binance
       useTestnet: true,
       recvWindow: 7000,
     },
-    session: {
-      messageCompactionLimit: 24,
-      scratchpadCompactionLimit: 36,
-      charCompactionLimit: 7200,
-      retainRecentMessages: 10,
-      retainRecentScratchpad: 18,
-      maxCompactionRecords: 9,
-    },
     gateway: {
       url: "http://127.0.0.1:9999",
       host: "0.0.0.0",
@@ -56,12 +48,6 @@ test("createAppConfig loads persisted config from app home while keeping Binance
   assert.equal(config.binance.apiSecret, undefined);
   assert.equal(config.binance.useTestnet, true);
   assert.equal(config.binance.recvWindow, 7000);
-  assert.equal(config.session.messageCompactionLimit, 24);
-  assert.equal(config.session.scratchpadCompactionLimit, 36);
-  assert.equal(config.session.charCompactionLimit, 7200);
-  assert.equal(config.session.retainRecentMessages, 10);
-  assert.equal(config.session.retainRecentScratchpad, 18);
-  assert.equal(config.session.maxCompactionRecords, 9);
   assert.equal(config.gateway.url, "http://127.0.0.1:9999");
   assert.equal(config.gateway.host, "0.0.0.0");
   assert.equal(config.gateway.port, 9999);
@@ -103,7 +89,6 @@ test("createAppConfig prefers environment variables over persisted values", asyn
       BRAVE_SEARCH_API_KEY: "brave-from-env",
       TELEGRAM_BOT_TOKEN: "telegram-token-from-env",
       BINANCE_USE_TESTNET: "true",
-      BINACLAW_SESSION_MESSAGE_LIMIT: "30",
       BINACLAW_GATEWAY_PORT: "9001",
       TELEGRAM_ALLOWED_USER_IDS: "42,43",
     },
@@ -117,7 +102,6 @@ test("createAppConfig prefers environment variables over persisted values", asyn
   assert.equal(config.brave.apiKey, "brave-from-env");
   assert.equal(config.telegram.botToken, "telegram-token-from-env");
   assert.equal(config.binance.useTestnet, true);
-  assert.equal(config.session.messageCompactionLimit, 30);
   assert.equal(config.gateway.port, 9001);
   assert.deepEqual(config.telegram.allowedUserIds, ["42", "43"]);
 });

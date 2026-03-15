@@ -4,11 +4,10 @@ import type {
   ConversationState,
   ConversationStateRequest,
   DirectResponseRequest,
+  EndpointDecision,
   ModelPlanResult,
   PlanningRequest,
   ProviderConfig,
-  SessionCompactionRequest,
-  SessionCompactionResult,
   SkillReferenceSelectionRequest,
   SkillReferenceSelectionResult,
   SkillSelectionRequest,
@@ -19,7 +18,6 @@ import type {
 export interface ChatProvider {
   isConfigured(): boolean;
   resolveConversationState?(request: ConversationStateRequest): Promise<ConversationState | null>;
-  compactSession?(request: SessionCompactionRequest): Promise<SessionCompactionResult | null>;
   selectSkills(request: SkillSelectionRequest): Promise<SkillSelectionResult | null>;
   selectSkillReferences(request: SkillReferenceSelectionRequest): Promise<SkillReferenceSelectionResult | null>;
   plan(request: PlanningRequest): Promise<ModelPlanResult | null>;
@@ -165,47 +163,6 @@ export class OpenAICompatibleProvider implements ChatProvider {
     };
   }
 
-  async compactSession(request: SessionCompactionRequest): Promise<SessionCompactionResult | null> {
-    if (!this.isConfigured()) {
-      return null;
-    }
-
-    const response = await this.fetchResponse(buildSessionCompactionMessages(request));
-    const parsed = parseJsonObject<SessionCompactionResult>(extractResponseText(response));
-    if (!parsed || typeof parsed.summary !== "string") {
-      return null;
-    }
-
-    const conversationState = parsed.conversationState && typeof parsed.conversationState === "object"
-      ? {
-          currentSymbol: typeof parsed.conversationState.currentSymbol === "string"
-            ? parsed.conversationState.currentSymbol
-            : undefined,
-          currentTopic:
-            parsed.conversationState.currentTopic &&
-            ["market", "news", "web3", "account", "trade", "orders"].includes(parsed.conversationState.currentTopic)
-              ? parsed.conversationState.currentTopic
-              : undefined,
-          currentMarketType:
-            parsed.conversationState.currentMarketType &&
-            ["spot", "futures"].includes(parsed.conversationState.currentMarketType)
-              ? parsed.conversationState.currentMarketType
-              : undefined,
-          summary: typeof parsed.conversationState.summary === "string"
-            ? parsed.conversationState.summary
-            : undefined,
-        }
-      : undefined;
-
-    return {
-      summary: parsed.summary,
-      durableFacts: Array.isArray(parsed.durableFacts)
-        ? parsed.durableFacts.filter((item) => typeof item === "string")
-        : [],
-      conversationState,
-    };
-  }
-
   async selectSkillReferences(
     request: SkillReferenceSelectionRequest,
   ): Promise<SkillReferenceSelectionResult | null> {
@@ -247,7 +204,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
     const toolPayload = request.tools.map((tool) => ({
       type: "function" as const,
       name: toFunctionName(tool.id),
-      description: `${tool.description}; dangerous=${tool.dangerous}; authScope=${tool.authScope}`,
+      description: buildToolDescription(tool),
       parameters: normalizeFunctionParameters(tool.inputSchema),
     }));
 
@@ -291,7 +248,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
     }
 
     const response = await this.fetchResponse(buildDirectResponseMessages(request));
-    const text = extractResponseText(response).trim();
+    const text = normalizeModelText(extractResponseText(response));
     return text || null;
   }
 
@@ -311,7 +268,6 @@ export class OpenAICompatibleProvider implements ChatProvider {
         content: [
           `用户输入: ${request.input}`,
           `激活技能: ${request.activeSkills.map((skill) => skill.manifest.name).join(", ") || "none"}`,
-          `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
           "workspace docs 摘要:",
           formatWorkspaceDocs(request.session.memoryContext?.workspaceDocs),
           "工具结果:",
@@ -323,7 +279,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
     ];
 
     const response = await this.fetchResponse(messages);
-    return extractResponseText(response) || fallbackSummary(request);
+    return normalizeModelText(extractResponseText(response)) || fallbackSummary(request);
   }
 
   async streamSummary(request: SummaryRequest, onDelta: (delta: string) => void): Promise<string> {
@@ -344,7 +300,6 @@ export class OpenAICompatibleProvider implements ChatProvider {
         content: [
           `用户输入: ${request.input}`,
           `激活技能: ${request.activeSkills.map((skill) => skill.manifest.name).join(", ") || "none"}`,
-          `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
           "workspace docs 摘要:",
           formatWorkspaceDocs(request.session.memoryContext?.workspaceDocs),
           "工具结果:",
@@ -373,7 +328,7 @@ export class OpenAICompatibleProvider implements ChatProvider {
       }
     }
 
-    return fullText || fallbackSummary(request);
+    return normalizeModelText(fullText) || fallbackSummary(request);
   }
 
   private async fetchResponse(
@@ -500,16 +455,20 @@ function buildPlanningMessages(request: PlanningRequest): ChatMessage[] {
       role: "system",
       content: [
         "你是 BinaClaw 的主规划器。",
-        "你的任务是在一次主调用里完成这些决策：挑选当前真正活跃的 skills、决定是否调用工具、更新会话主题状态、以及在无需工具时直接回复用户。",
+        "你的任务是在一次主调用里完成这些决策：基于已选中的 skills 决定是否调用工具、更新会话主题状态、以及在无需工具时直接回复用户。",
+        "下面会提供已经通过第一阶段选中的 skills，它们包含完整的 SKILL.md 内容。",
+        "你必须优先依据这些 skill 文档里的 When to use、Instructions、Quick Reference、Available APIs、Authentication、Security 来决定该调用哪个工具或接口能力。",
+        "如果你决定调用某个接口或工具，请同时返回 endpointDecision，说明你依据的是哪个 skill、哪个接口能力。",
         "你必须结合最近会话来理解用户的跟进语句，例如“继续”“那 ETH 呢”“换成 4 小时级别”。",
         "只有当当前输入明显是跟进语句时，才允许延续最近明确提到的主交易对或主题。",
         "如果当前输入没有明确交易对，且也不是明显跟进，不要自己猜 symbol，应该直接追问用户想看哪个交易对。",
         "你只能从提供的 tools 中选择，不能发明新工具。",
         "如果用户信息不足，directResponse 应该直接自然追问缺失信息，不要伪造 tool input。",
         "危险工具也可以规划出来，但不要替用户确认，确认由本地审批流处理。",
+        "如果危险交易参数已经完整，就直接返回对应的 dangerous toolCalls，不要自己发起“请回复确认下单”之类的模拟审批对话。",
         "如果已有 observations 足以回答，请优先返回 directResponse。",
         "如果还需要更多信息，可以继续返回 toolCalls。",
-        "在文本输出中优先返回 JSON 对象，格式为 {\"selectedSkillNames\":[\"...\"],\"directResponse\":\"...\",\"conversationStateUpdate\":{\"currentSymbol\":\"...\",\"currentTopic\":\"market\",\"currentMarketType\":\"spot\",\"summary\":\"...\"}}。",
+        "在文本输出中优先返回 JSON 对象，格式为 {\"selectedSkillNames\":[\"...\"],\"endpointDecision\":{\"skillName\":\"spot\",\"toolId\":\"spot.placeOrder\",\"endpointId\":\"spot.placeOrder\",\"operation\":\"spot new order\",\"method\":\"POST\",\"path\":\"/api/v3/order\",\"transport\":\"builtin\",\"rationale\":\"...\"},\"directResponse\":\"...\",\"conversationStateUpdate\":{\"currentSymbol\":\"...\",\"currentTopic\":\"market\",\"currentMarketType\":\"spot\",\"summary\":\"...\"}}。",
         "如果你选择了 function tools，仍然可以同时返回上述 JSON 文本；directResponse 可以为空字符串。",
       ].join("\n"),
     },
@@ -519,23 +478,12 @@ function buildPlanningMessages(request: PlanningRequest): ChatMessage[] {
         `用户输入: ${request.input}`,
         `是否具备交易认证: ${request.authAvailable ? "yes" : "no"}`,
         `当前会话主题状态: ${formatConversationState(request.session.conversationState)}`,
-        `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
         "最近会话:",
         formatRecentConversation(request.session.messages),
         "workspace docs 摘要:",
         formatWorkspaceDocs(request.memoryContext?.workspaceDocs),
-        "候选 skills:",
-        ...request.candidateSkills.map(
-          (skill) =>
-            [
-              `- ${skill.manifest.name}: ${skill.manifest.description}`,
-              `  capabilities=${summarizeList(skill.manifest.capabilities, 6)}`,
-              `  compiled_endpoint_count=${skill.knowledge.endpointHints.length}`,
-              `  reference_count=${skill.knowledge.referenceFiles.length}`,
-              `  auth=${summarizeList(skill.knowledge.authHints.signatureAlgorithms, 3)}`,
-              `  instructions=${truncateInline(skill.knowledge.sections.instructions, 180)}`,
-            ].join("\n"),
-        ),
+        "已选中 skills 的 SKILL.md 文档:",
+        ...request.candidateSkills.map((skill) => formatPlanningSkillDocument(skill)),
         `可用 tools 数量: ${request.tools.length}`,
         `当前迭代: ${request.iteration}`,
         "workspace memory 摘要:",
@@ -592,7 +540,6 @@ function buildReferenceSelectionMessages(request: SkillReferenceSelectionRequest
         `用户输入: ${request.input}`,
         `是否具备交易认证: ${request.authAvailable ? "yes" : "no"}`,
         `当前会话主题状态: ${formatConversationState(request.session.conversationState)}`,
-        `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
         "最近会话:",
         formatRecentConversation(request.session.messages),
         "workspace docs 摘要:",
@@ -646,7 +593,6 @@ function buildSkillSelectionMessages(request: SkillSelectionRequest): ChatMessag
         `用户输入: ${request.input}`,
         `是否具备交易认证: ${request.authAvailable ? "yes" : "no"}`,
         `当前会话主题状态: ${formatConversationState(request.session.conversationState)}`,
-        `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
         "最近会话:",
         formatRecentConversation(request.session.messages),
         "workspace docs 摘要:",
@@ -697,6 +643,20 @@ function summarizeList(values: string[], limit: number): string {
   return values.length > limit ? `${sliced}, ...` : sliced;
 }
 
+function formatPlanningSkillDocument(skill: SkillSelectionRequest["skills"][number]): string {
+  return [
+    `--- SKILL: ${skill.manifest.name} ---`,
+    `description=${skill.manifest.description}`,
+    `capabilities=${summarizeList(skill.manifest.capabilities, 8)}`,
+    `products=${summarizeList(skill.manifest.products, 6)}`,
+    `requires_auth=${skill.manifest.requires_auth}`,
+    `dangerous=${skill.manifest.dangerous}`,
+    `compiled_endpoint_count=${skill.knowledge.endpointHints.length}`,
+    `reference_count=${skill.knowledge.referenceFiles.length}`,
+    skill.instructions,
+  ].join("\n");
+}
+
 function buildConversationStateMessages(request: ConversationStateRequest): ChatMessage[] {
   return [
     {
@@ -713,7 +673,6 @@ function buildConversationStateMessages(request: ConversationStateRequest): Chat
       content: [
         `当前输入: ${request.input}`,
         `已有会话主题状态: ${formatConversationState(request.session.conversationState)}`,
-        `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
         "最近会话:",
         formatRecentConversation(request.session.messages),
         "workspace docs 摘要:",
@@ -766,7 +725,6 @@ function buildDirectResponseMessages(request: DirectResponseRequest): ChatMessag
         `回复模式: ${request.mode}`,
         `推断意图: ${request.intent ? JSON.stringify(request.intent) : "null"}`,
         `当前会话主题状态: ${formatConversationState(request.session.conversationState)}`,
-        `压缩会话摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
         "最近会话:",
         formatRecentConversation(request.session.messages),
         "workspace docs 摘要:",
@@ -809,13 +767,6 @@ function formatConversationState(state: ConversationState | undefined): string {
   return JSON.stringify(state, null, 2);
 }
 
-function formatCompactionSummary(summary: string | undefined): string {
-  if (!summary) {
-    return "none";
-  }
-  return summary.slice(-800);
-}
-
 function formatWorkspaceDocs(
   docs:
     | {
@@ -847,52 +798,6 @@ function formatWorkspaceDocs(
   );
 }
 
-function buildSessionCompactionMessages(request: SessionCompactionRequest): ChatMessage[] {
-  return [
-    {
-      role: "system",
-      content: [
-        "你是 BinaClaw 的 session compactor。",
-        "你的任务是在会话过长时，把较早的消息和推理轨迹压缩成一个可继续工作的摘要。",
-        "同时提取应该被长期记住的 durable facts，但只保留长期稳定、跨会话有价值的信息。",
-        "不要把一次性的行情判断或临时任务写成 durable facts。",
-        "只返回 JSON，对象格式为 {\"summary\":\"...\",\"durableFacts\":[\"...\"],\"conversationState\":{\"currentSymbol\":\"...\",\"currentTopic\":\"market\",\"currentMarketType\":\"spot\",\"summary\":\"...\"}}。",
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: [
-        `压缩触发原因: ${request.trigger}`,
-        `已有会话主题状态: ${formatConversationState(request.session.conversationState)}`,
-        `此前压缩摘要: ${formatCompactionSummary(request.session.compactionSummary)}`,
-        "workspace docs 摘要:",
-        formatWorkspaceDocs(request.memoryContext?.workspaceDocs),
-        "需要压缩的历史消息:",
-        request.messagesToCompact.length > 0
-          ? request.messagesToCompact.map((message) => `${message.role}: ${truncateInline(message.content, 220)}`).join("\n")
-          : "none",
-        "需要压缩的推理轨迹:",
-        request.scratchpadToCompact.length > 0
-          ? JSON.stringify(request.scratchpadToCompact.slice(-8), null, 2)
-          : "[]",
-        "workspace memory 摘要:",
-        request.memoryContext
-          ? JSON.stringify(
-              {
-                longTermMemory: request.memoryContext.longTermMemory.slice(0, 220),
-                recentEntries: request.memoryContext.recentEntries.map((entry) => ({
-                  date: entry.date,
-                  content: entry.content.slice(0, 120),
-                })),
-              },
-              null,
-              2,
-            )
-          : "null",
-      ].join("\n"),
-    },
-  ];
-}
 
 function normalizeFunctionParameters(schema: unknown): Record<string, unknown> {
   if (!schema || typeof schema !== "object") {
@@ -902,6 +807,19 @@ function normalizeFunctionParameters(schema: unknown): Record<string, unknown> {
     };
   }
   return schema as Record<string, unknown>;
+}
+
+function buildToolDescription(tool: PlanningRequest["tools"][number]): string {
+  const meta = [
+    `dangerous=${tool.dangerous}`,
+    `authScope=${tool.authScope}`,
+    tool.sourceSkill ? `sourceSkill=${tool.sourceSkill}` : undefined,
+    tool.transport ? `transport=${tool.transport}` : undefined,
+    tool.operation ? `operation=${tool.operation}` : undefined,
+    tool.method ? `method=${tool.method}` : undefined,
+    tool.path ? `path=${tool.path}` : undefined,
+  ].filter(Boolean);
+  return [tool.description, ...meta].join("; ");
 }
 
 function parseFunctionCallPlan(
@@ -941,6 +859,7 @@ function parseFunctionCallPlan(
 
   return {
     selectedSkillNames: metadata?.selectedSkillNames,
+    endpointDecision: metadata?.endpointDecision ?? deriveEndpointDecision(toolCalls, request),
     directResponse,
     conversationStateUpdate: metadata?.conversationStateUpdate,
     toolCalls,
@@ -950,11 +869,13 @@ function parseFunctionCallPlan(
 
 function parsePlanMetadata(content: string, request: PlanningRequest): {
   selectedSkillNames?: string[];
+  endpointDecision?: EndpointDecision;
   directResponse?: string;
   conversationStateUpdate?: ConversationState;
 } | null {
   const parsed = parseJsonObject<{
     selectedSkillNames?: unknown;
+    endpointDecision?: unknown;
     directResponse?: unknown;
     conversationStateUpdate?: unknown;
   }>(content);
@@ -985,10 +906,72 @@ function parsePlanMetadata(content: string, request: PlanningRequest): {
       }
     : undefined;
 
+  const endpointDecision = parseEndpointDecision(parsed.endpointDecision, request);
+
   return {
     selectedSkillNames,
-    directResponse: typeof parsed.directResponse === "string" ? parsed.directResponse : undefined,
+    endpointDecision,
+    directResponse: typeof parsed.directResponse === "string" ? normalizeModelText(parsed.directResponse) : undefined,
     conversationStateUpdate,
+  };
+}
+
+function parseEndpointDecision(value: unknown, request: PlanningRequest): EndpointDecision | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const allowedSkillNames = new Set(request.candidateSkills.map((skill) => skill.manifest.name));
+  const toolById = new Map(request.tools.map((tool) => [tool.id, tool]));
+  const raw = value as Record<string, unknown>;
+
+  const toolId = typeof raw.toolId === "string" && toolById.has(raw.toolId) ? raw.toolId : undefined;
+  const tool = toolId ? toolById.get(toolId) : undefined;
+  const skillName = typeof raw.skillName === "string" && allowedSkillNames.has(raw.skillName)
+    ? raw.skillName
+    : tool?.sourceSkill;
+  const endpointId = typeof raw.endpointId === "string" ? raw.endpointId : toolId;
+  const operation = typeof raw.operation === "string" ? raw.operation : tool?.operation;
+  const method = typeof raw.method === "string" ? raw.method : tool?.method;
+  const path = typeof raw.path === "string" ? raw.path : tool?.path;
+  const transport = isSkillTransportKind(raw.transport) ? raw.transport : tool?.transport;
+  const rationale = typeof raw.rationale === "string" ? normalizeModelText(raw.rationale) : undefined;
+
+  if (!toolId && !endpointId && !path) {
+    return undefined;
+  }
+
+  return {
+    skillName,
+    toolId,
+    endpointId,
+    operation,
+    method,
+    path,
+    transport,
+    rationale,
+  };
+}
+
+function deriveEndpointDecision(
+  toolCalls: Array<{ toolId: string; input: Record<string, unknown> }>,
+  request: PlanningRequest,
+): EndpointDecision | undefined {
+  if (toolCalls.length !== 1) {
+    return undefined;
+  }
+  const tool = request.tools.find((item) => item.id === toolCalls[0]?.toolId);
+  if (!tool) {
+    return undefined;
+  }
+  return {
+    skillName: tool.sourceSkill,
+    toolId: tool.id,
+    endpointId: tool.id,
+    operation: tool.operation,
+    method: tool.method,
+    path: tool.path,
+    transport: tool.transport,
   };
 }
 
@@ -997,10 +980,14 @@ function extractPlainDirectResponse(content: string): string | undefined {
     return undefined;
   }
   const parsed = parseJsonObject<Record<string, unknown>>(content);
-  if (parsed && typeof parsed === "object" && ("directResponse" in parsed || "selectedSkillNames" in parsed)) {
-    return typeof parsed.directResponse === "string" ? parsed.directResponse : undefined;
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    ("directResponse" in parsed || "selectedSkillNames" in parsed || "endpointDecision" in parsed)
+  ) {
+    return typeof parsed.directResponse === "string" ? normalizeModelText(parsed.directResponse) : undefined;
   }
-  return content || undefined;
+  return normalizeModelText(content) || undefined;
 }
 
 function isConversationTopic(value: unknown): value is ConversationState["currentTopic"] {
@@ -1009,6 +996,17 @@ function isConversationTopic(value: unknown): value is ConversationState["curren
 
 function isConversationMarketType(value: unknown): value is ConversationState["currentMarketType"] {
   return typeof value === "string" && ["spot", "futures"].includes(value);
+}
+
+function isSkillTransportKind(value: unknown): value is EndpointDecision["transport"] {
+  return typeof value === "string" && [
+    "builtin",
+    "binance-public-http",
+    "binance-signed-http",
+    "http",
+    "exec",
+    "memory",
+  ].includes(value);
 }
 
 function extractResponseText(payload: {
@@ -1105,5 +1103,55 @@ function parseJsonObject<T>(content?: string): T | null {
     } catch {
       return null;
     }
+  }
+}
+
+function normalizeModelText(content: string): string {
+  let normalized = content.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const parsedString = tryParseStringLiteral(normalized);
+  if (parsedString !== null) {
+    normalized = parsedString.trim();
+  } else if (looksEscaped(normalized)) {
+    const decoded = decodeEscapedSequences(normalized);
+    if (decoded !== null) {
+      normalized = decoded.trim();
+    }
+  }
+
+  return normalized;
+}
+
+function tryParseStringLiteral(value: string): string | null {
+  if (!(value.startsWith("\"") && value.endsWith("\""))) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function looksEscaped(value: string): boolean {
+  return value.includes("\\n") || value.includes("\\r") || value.includes("\\t") || value.includes("\\\"");
+}
+
+function decodeEscapedSequences(value: string): string | null {
+  try {
+    const reparsed = JSON.parse(
+      JSON.stringify(value)
+        .replace(/\\\\n/g, "\\n")
+        .replace(/\\\\r/g, "\\r")
+        .replace(/\\\\t/g, "\\t")
+        .replace(/\\\\\"/g, '\\"'),
+    );
+    return typeof reparsed === "string" ? reparsed : null;
+  } catch {
+    return null;
   }
 }

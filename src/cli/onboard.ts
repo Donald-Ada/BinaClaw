@@ -30,11 +30,6 @@ export async function runOnboard(): Promise<void> {
     console.log(`Gateway log: ${gateway.logFile}`);
     console.log(`Telegram log: ${telegram.logFile}`);
     console.log(`Local env: ${config.localEnvFile}`);
-    if (!config.binance.apiKey || !config.binance.apiSecret) {
-      console.log("提示: 当前 Binance 仍是只读模式。你可以稍后重新运行 binaclaw onboard 补充 Binance 私钥。");
-    } else {
-      console.log("Binance 私有接口密钥已写入本机环境文件，不会出现在 config.json 中。");
-    }
     console.log("现在你可以直接在 Telegram 中和你的 AI Agent 对话了。");
   } catch (error) {
     for (const serviceName of startedFresh.reverse()) {

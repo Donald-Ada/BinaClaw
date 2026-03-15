@@ -7,7 +7,6 @@ export type GatewayRequestType =
   | "skills.list"
   | "session.get"
   | "session.clear"
-  | "session.compact"
   | "trace.clear"
   | "chat.send";
 

@@ -4,5 +4,6 @@ coverage
 .idea
 *.log
 .binaclaw
+.binaclaw-smoke
 dist
 .binaclaw-publish
